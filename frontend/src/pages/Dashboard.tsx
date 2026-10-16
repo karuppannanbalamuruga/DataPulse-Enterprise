@@ -130,13 +130,13 @@ export default function Dashboard() {
           </p>
         </div>
 
-        <Button
+        {/* <Button
           variant="secondary"
           onClick={() => void loadDashboard()}
           disabled={loading}
         >
           Refresh Data
-        </Button>
+        </Button> */}
       </div>
 
       {/* API error message */}

@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import PageContainer from "../components/layout/PageContainer";
 import Button from "../components/common/Button";
@@ -11,6 +11,7 @@ import Modal from "../components/common/Model";
 import {
   getOrganizations,
   createOrganization,
+  updateOrganization,
 } from "../services/api";
 
 interface Organization {
@@ -25,11 +26,20 @@ export default function Organizations() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Create modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Edit modal state
+  const [editingOrganization, setEditingOrganization] =
+    useState<Organization | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editSlug, setEditSlug] = useState("");
+  const [editError, setEditError] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   // Load organizations from the backend
   const loadOrganizations = useCallback(async () => {
@@ -51,7 +61,7 @@ export default function Organizations() {
     void loadOrganizations();
   }, [loadOrganizations]);
 
-  // Automatically create a URL-friendly slug from the name
+  // Automatically generate a URL-friendly slug
   function handleNameChange(value: string) {
     setName(value);
 
@@ -64,8 +74,8 @@ export default function Organizations() {
     );
   }
 
-  // Create a new organization through the API
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  // Create organization
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setFormError("");
@@ -106,7 +116,6 @@ export default function Organizations() {
       setIsModalOpen(false);
       setName("");
       setSlug("");
-
       setSuccess("Organization created successfully.");
 
       await loadOrganizations();
@@ -129,6 +138,83 @@ export default function Organizations() {
     setFormError("");
   }
 
+  // Open edit modal and populate selected organization details
+  function openEditModal(organization: Organization) {
+    setEditingOrganization(organization);
+    setEditName(organization.name);
+    setEditSlug(organization.slug);
+    setEditError("");
+    setSuccess("");
+  }
+
+  function handleCloseEditModal() {
+    if (editSaving) return;
+
+    setEditingOrganization(null);
+    setEditName("");
+    setEditSlug("");
+    setEditError("");
+  }
+
+  // Update organization through the API
+  async function handleUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!editingOrganization) return;
+
+    setEditError("");
+    setSuccess("");
+
+    const trimmedName = editName.trim();
+    const trimmedSlug = editSlug.trim().toLowerCase();
+
+    if (!trimmedName || !trimmedSlug) {
+      setEditError("Organization name and slug are required.");
+      return;
+    }
+
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmedSlug)) {
+      setEditError(
+        "Use lowercase letters, numbers, and single hyphens in the slug."
+      );
+      return;
+    }
+
+    const slugExists = organizations.some(
+      (organization) =>
+        organization.id !== editingOrganization.id &&
+        organization.slug.toLowerCase() === trimmedSlug
+    );
+
+    if (slugExists) {
+      setEditError("This slug already exists. Please use a different slug.");
+      return;
+    }
+
+    try {
+      setEditSaving(true);
+
+      await updateOrganization(editingOrganization.id, {
+        name: trimmedName,
+        slug: trimmedSlug,
+      });
+
+      setEditingOrganization(null);
+      setEditName("");
+      setEditSlug("");
+      setSuccess("Organization updated successfully.");
+
+      await loadOrganizations();
+    } catch (err) {
+      console.error("Failed to update organization:", err);
+      setEditError(
+        "Unable to update organization. Check the details and try again."
+      );
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
   return (
     <PageContainer>
       {/* Page heading */}
@@ -142,25 +228,17 @@ export default function Organizations() {
           </p>
         </div>
 
-        <div className="flex gap-3">
-          <Button
-            variant="secondary"
-            onClick={() => void loadOrganizations()}
-            disabled={loading}
-          >
-            Refresh
-          </Button>
-
-          <Button
-            onClick={() => {
-              setSuccess("");
-              setFormError("");
-              setIsModalOpen(true);
-            }}
-          >
-            + Create Organization
-          </Button>
-        </div>
+        <Button
+          onClick={() => {
+            setSuccess("");
+            setFormError("");
+            setName("");
+            setSlug("");
+            setIsModalOpen(true);
+          }}
+        >
+          + Create Organization
+        </Button>
       </div>
 
       {/* Success message */}
@@ -225,6 +303,7 @@ export default function Organizations() {
                 <th className="px-6 py-4 font-medium">Organization ID</th>
                 <th className="px-6 py-4 font-medium">Organization Name</th>
                 <th className="px-6 py-4 font-medium">Slug</th>
+                <th className="px-6 py-4 text-center font-medium">Actions</th>
               </tr>
             </thead>
 
@@ -246,6 +325,32 @@ export default function Organizations() {
                     <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-600">
                       {organization.slug}
                     </span>
+                  </td>
+
+                  <td className="px-6 py-4 text-center">
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(organization)}
+                      title="Edit organization"
+                      aria-label={`Edit ${organization.name}`}
+                      className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+                      </svg>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -300,7 +405,63 @@ export default function Organizations() {
             </Button>
 
             <Button type="submit" loading={saving} disabled={saving}>
-              Create Organization
+              {saving ? "Creating..." : "Create Organization"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Organization Modal */}
+      <Modal
+        isOpen={editingOrganization !== null}
+        onClose={handleCloseEditModal}
+        title="Edit Organization"
+        description="Update the organization name and slug."
+        size="md"
+      >
+        <form onSubmit={handleUpdate} className="space-y-5">
+          <Input
+            label="Organization Name"
+            placeholder="Enter organization name"
+            value={editName}
+            onChange={(event) => setEditName(event.target.value)}
+            required
+          />
+
+          <Input
+            label="Organization Slug"
+            placeholder="e.g. acme-technologies"
+            value={editSlug}
+            onChange={(event) => setEditSlug(event.target.value)}
+            required
+          />
+
+          <p className="-mt-3 text-xs text-slate-500">
+            Use lowercase letters, numbers, and hyphens.
+          </p>
+
+          {editError && (
+            <p role="alert" className="text-sm text-red-600">
+              {editError}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleCloseEditModal}
+              disabled={editSaving}
+            >
+              Cancel
+            </Button>
+
+            <Button
+              type="submit"
+              loading={editSaving}
+              disabled={editSaving}
+            >
+              {editSaving ? "Updating..." : "Update Organization"}
             </Button>
           </div>
         </form>

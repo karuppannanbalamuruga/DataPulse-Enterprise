@@ -1,10 +1,6 @@
-
 import api from "./axiosConfig";
 
-import type {
-  Dataset,
-  CreateDatasetPayload,
-} from "../types/dataset";
+import type { Dataset, CreateDatasetPayload } from "../types/dataset";
 
 import type {
   ValidationRule,
@@ -29,10 +25,23 @@ export const getDatasets = async (): Promise<Dataset[]> => {
 export const createDataset = async (
   payload: CreateDatasetPayload,
 ): Promise<Dataset> => {
-  const response = await api.post<Dataset>(
-    "/api/v1/datasets",
-    payload,
-  );
+  const response = await api.post<Dataset>("/api/v1/datasets", payload);
+  return response.data;
+};
+
+// PUT: Update a dataset
+export const updateDataset = async (
+  id: number,
+  payload: {
+    organization_id: number;
+    name: string;
+    description?: string;
+    source_type?: string;
+    status?: string;
+  },
+): Promise<Dataset> => {
+  const response = await api.put<Dataset>(`/api/v1/datasets/${id}`, payload);
+
   return response.data;
 };
 
@@ -43,12 +52,8 @@ export const createDataset = async (
 // =====================================================
 
 // GET: Retrieve all validation rules
-export const getValidationRules = async (): Promise<
-  ValidationRule[]
-> => {
-  const response = await api.get<ValidationRule[]>(
-    "/api/v1/validation-rules",
-  );
+export const getValidationRules = async (): Promise<ValidationRule[]> => {
+  const response = await api.get<ValidationRule[]>("/api/v1/validation-rules");
   return response.data;
 };
 
@@ -60,6 +65,26 @@ export const createValidationRule = async (
     "/api/v1/validation-rules",
     payload,
   );
+  return response.data;
+};
+
+// PUT: Update a validation rule
+export const updateValidationRule = async (
+  id: number,
+  payload: {
+    dataset_id: number;
+    name: string;
+    rule_type: string;
+    description?: string;
+    configuration?: Record<string, unknown>;
+    is_active?: boolean;
+  },
+): Promise<ValidationRule> => {
+  const response = await api.put<ValidationRule>(
+    `/api/v1/validation-rules/${id}`,
+    payload,
+  );
+
   return response.data;
 };
 
@@ -80,10 +105,17 @@ export const createOrganization = async (payload: {
   name: string;
   slug: string;
 }) => {
-  const response = await api.post(
-    "/api/v1/organizations",
-    payload,
-  );
+  const response = await api.post("/api/v1/organizations", payload);
+  return response.data;
+};
+
+// PUT: Update an organization
+export const updateOrganization = async (
+  id: number,
+  payload: { name: string; slug: string },
+) => {
+  const response = await api.put(`/api/v1/organizations/${id}`, payload);
+
   return response.data;
 };
 
@@ -95,9 +127,7 @@ export const createOrganization = async (payload: {
 
 // GET: Retrieve all processing runs
 export const getProcessingRuns = async (): Promise<ProcessingRun[]> => {
-  const response = await api.get<ProcessingRun[]>(
-    "/api/v1/processing-runs",
-  );
+  const response = await api.get<ProcessingRun[]>("/api/v1/processing-runs");
 
   return response.data;
 };
@@ -119,3 +149,20 @@ export const createProcessingRun = async (
   return response.data;
 };
 
+// PUT: Update a processing run
+export const updateProcessingRun = async (
+  id: number,
+  payload: {
+    status?: string;
+    records_processed?: number;
+    error_message?: string | null;
+    completed_at?: string | null;
+  },
+): Promise<ProcessingRun> => {
+  const response = await api.put<ProcessingRun>(
+    `/api/v1/processing-runs/${id}`,
+    payload,
+  );
+
+  return response.data;
+};

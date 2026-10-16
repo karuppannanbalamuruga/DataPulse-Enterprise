@@ -7,8 +7,7 @@ const navigationItems = [
   { label: "Datasets", icon: "▤", href: "/datasets" },
   { label: "Validation Rules", icon: "✓", href: "/validation-rules" },
   { label: "Processing Runs", icon: "↻", href: "/processing-runs" },
-  { label: "Organizations", icon: "🏢", href: "/organizations" },
-  { label: "Settings", icon: "⚙", href: "/settings" },
+  { label: "Organizations", icon: "🏢", href: "/organizations" }
 ];
 
 export default function Sidebar() {
@@ -55,7 +54,7 @@ export default function Sidebar() {
       </button>
 
       <aside className="hidden min-h-screen w-64 shrink-0 flex-col border-r border-slate-200 bg-white md:flex">
-        <div className="border-b border-slate-200 px-6 py-6">
+        <div className="border border-slate-200 px-6 py-6 -mt-1">
           <h1 className="text-xl font-bold text-blue-600">DataPulse</h1>
           <p className="mt-1 text-xs text-slate-500">Enterprise Platform</p>
         </div>
