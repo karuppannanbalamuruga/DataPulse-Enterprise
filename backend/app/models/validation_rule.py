@@ -2,6 +2,7 @@
 from datetime import datetime
 
 from sqlalchemy import String, ForeignKey, DateTime, Text, Boolean
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -21,6 +22,13 @@ class ValidationRule(Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     rule_type: Mapped[str] = mapped_column(String(50), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    configuration: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+    )
+
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
