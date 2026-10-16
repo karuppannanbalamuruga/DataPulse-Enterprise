@@ -1,12 +1,13 @@
+
 # DataPulse Enterprise — API Contract
 
 ## 1. Overview
 
-The backend uses FastAPI to expose REST API endpoints. Interactive API documentation is available at `/docs`.
+The DataPulse Enterprise backend uses FastAPI to expose REST API endpoints.
 
-Base URL for local development:
+Interactive API documentation is available at `/docs`.
 
-`http://127.0.0.1:8000`
+**Base URL:** `http://127.0.0.1:8000`
 
 ## 2. Health Check
 
@@ -14,7 +15,7 @@ Base URL for local development:
 
 Checks application health and database connectivity.
 
-**Success response:** HTTP 200
+**Success response:** `200 OK`
 
 ```json
 {
@@ -23,31 +24,110 @@ Checks application health and database connectivity.
 }
 ```
 
-The exact error response depends on the backend implementation.
-
 ## 3. Organizations
 
-The organization API is registered under the `/api/v1/organizations` route prefix.
+### GET `/api/v1/organizations`
 
-Verify available methods and request schemas in `/docs`.
+Retrieves organizations.
+
+**Verified response:** `200 OK`
+
+Response fields:
+- `id`
+- `name`
+- `slug`
+
+### POST `/api/v1/organizations`
+
+Creates an organization.
+
+**Verified request body:**
+
+```json
+{
+  "name": "Checklist Test Org",
+  "slug": "checklist-test-org"
+}
+```
+
+**Verified response:** `201 Created`
+
+Response fields:
+- `id`
+- `name`
+- `slug`
 
 ## 4. Datasets
 
 ### GET `/api/v1/datasets`
 
-Retrieves datasets according to the implemented endpoint behavior.
+Retrieves datasets.
+
+**Verified response:** `200 OK`
+
+Response fields:
+- `id`
+- `name`
+- `description`
+- `created_at`
+- `organization_id`
+- `source_type`
+- `status`
 
 ### POST `/api/v1/datasets`
 
-Creates a dataset using the request payload accepted by the backend.
+Creates a dataset.
 
-The current frontend sends organization ID, name, description, and source type when creating a dataset. Confirm the exact schema in Swagger before making requests.
+**Verified request body:**
+
+```json
+{
+  "name": "Checklist Test Dataset",
+  "description": "Dataset created during API verification",
+  "organization_id": 1,
+  "source_type": "file",
+  "status": "pending"
+}
+```
+
+**Verified response:** `201 Created`
 
 ## 5. Validation Rules
 
-The validation rules API is registered under `/api/v1/validation-rules`.
+### GET `/api/v1/validation-rules`
 
-Check `/docs` for the supported HTTP methods, request parameters, and response schemas.
+Retrieves validation rules.
+
+**Verified response:** `200 OK`
+
+Response fields:
+- `id`
+- `dataset_id`
+- `name`
+- `rule_type`
+- `description`
+- `configuration`
+- `is_active`
+- `created_at`
+
+### POST `/api/v1/validation-rules`
+
+Creates a validation rule.
+
+**Verified request body:**
+
+```json
+{
+  "dataset_id": 4,
+  "name": "Checklist Not Null Rule",
+  "rule_type": "not_null",
+  "description": "Verify that required values are not empty",
+  "configuration": {},
+  "is_active": true
+}
+```
+
+**Verified response:** `201 Created`
 
 ## 6. Processing Runs
 
@@ -55,22 +135,48 @@ Check `/docs` for the supported HTTP methods, request parameters, and response s
 
 Retrieves processing runs.
 
+**Verified response:** `200 OK`
+
+Response fields:
+- `id`
+- `dataset_id`
+- `status`
+- `records_processed`
+- `error_message`
+- `started_at`
+- `completed_at`
+
 ### POST `/api/v1/processing-runs`
 
-Creates a processing run. The current backend expects a `dataset_id` query parameter and checks whether the referenced dataset exists.
+Creates a processing run for an existing dataset.
+
+The tested request uses the `dataset_id` query parameter.
+
+**Verified response:** `200 OK`
+
+Response fields:
+- `id`
+- `dataset_id`
+- `status`
+- `records_processed`
+- `error_message`
+- `started_at`
+- `completed_at`
 
 ## 7. Error Handling
 
-The API may return HTTP error responses when requests are invalid, referenced records do not exist, or a server-side operation fails. Refer to the live Swagger documentation for each endpoint's declared responses.
+Error responses may occur when request data is invalid, a referenced record does not exist, or a server-side operation fails.
+
+Consult `/docs` for the declared response schemas and status codes.
 
 ## 8. API Verification
 
-Open:
+Open `http://127.0.0.1:8000/docs` to inspect and test the API endpoints.
 
-`http://127.0.0.1:8000/docs`
-
-Use the Swagger UI to inspect endpoint schemas and test the API.
+The GET endpoints and the POST endpoints listed above were tested successfully in the local development environment.
 
 ## 9. Scope
 
-This contract documents the current foundational API. Full CSV processing, production authentication, and advanced data-quality execution are outside the initial scope.
+This document describes the foundational API currently verified in local development.
+
+Full CSV processing, production authentication, and advanced data-quality execution are outside the initial scope.
