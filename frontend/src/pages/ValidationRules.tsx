@@ -1,10 +1,4 @@
-
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import PageContainer from "../components/layout/PageContainer";
 import Button from "../components/common/Button";
@@ -13,6 +7,7 @@ import Loader from "../components/common/Loader";
 import EmptyState from "../components/common/EmptyState";
 import Badge from "../components/common/Badge";
 import Modal from "../components/common/Model";
+import Toast, { type ToastType } from "../components/common/Toast";
 
 import {
   getDatasets,
@@ -38,6 +33,12 @@ const RULE_TYPES = [
 export default function ValidationRules() {
   const [rules, setRules] = useState<ValidationRule[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedDatasetFilter, setSelectedDatasetFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalRules, setTotalRules] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,7 +48,17 @@ export default function ValidationRules() {
   const [pageError, setPageError] = useState("");
   const [formError, setFormError] = useState("");
   const [editError, setEditError] = useState("");
-  const [message, setMessage] = useState("");
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastType, setToastType] = useState<ToastType>("success");
+
+  const showToast = (nextMessage: string, type: ToastType = "success") => {
+    setToastMessage(nextMessage);
+    setToastType(type);
+  };
+
+  const closeToast = () => {
+    setToastMessage("");
+  };
 
   // Create modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -55,6 +66,9 @@ export default function ValidationRules() {
   const [name, setName] = useState("");
   const [ruleType, setRuleType] = useState("not_null");
   const [description, setDescription] = useState("");
+
+  // View modal state
+  const [viewingRule, setViewingRule] = useState<ValidationRule | null>(null);
 
   // Edit modal state
   const [editingRule, setEditingRule] = useState<ValidationRule | null>(null);
@@ -64,23 +78,34 @@ export default function ValidationRules() {
   const [editDescription, setEditDescription] = useState("");
   const [editIsActive, setEditIsActive] = useState(true);
 
-  // Load validation rules
+  // Load validation rules from the backend with search, filter and pagination.
   const loadRules = useCallback(async () => {
     try {
       setLoading(true);
       setPageError("");
 
-      const data = await getValidationRules();
-      setRules(data);
+      const data = await getValidationRules({
+        page: currentPage,
+        page_size: pageSize,
+        search: searchTerm.trim() || undefined,
+        dataset_id:
+          selectedDatasetFilter === "all"
+            ? undefined
+            : Number(selectedDatasetFilter),
+      });
+
+      setRules(data.items);
+      setTotalRules(data.total);
+      setTotalPages(data.total_pages);
     } catch (error) {
       console.error("Failed to load validation rules:", error);
       setPageError(
-        "Unable to load validation rules. Please check the backend."
+        "Unable to load validation rules. Please check the backend/API response.",
       );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentPage, pageSize, searchTerm, selectedDatasetFilter]);
 
   // Load available datasets
   const loadDatasets = useCallback(async () => {
@@ -105,7 +130,6 @@ export default function ValidationRules() {
   // Open create modal
   function openModal() {
     setFormError("");
-    setMessage("");
     setDatasetId("");
     setName("");
     setRuleType("not_null");
@@ -126,7 +150,6 @@ export default function ValidationRules() {
     event.preventDefault();
 
     setFormError("");
-    setMessage("");
 
     if (!datasetId) {
       setFormError("Please select a dataset.");
@@ -143,6 +166,7 @@ export default function ValidationRules() {
       name: name.trim(),
       rule_type: ruleType,
       description: description.trim(),
+      configuration: {},
       is_active: true,
     };
 
@@ -151,7 +175,7 @@ export default function ValidationRules() {
 
       await createValidationRule(payload);
 
-      setMessage("Validation rule created successfully!");
+      showToast("Validation rule created successfully!", "success");
       setIsModalOpen(false);
 
       setDatasetId("");
@@ -163,11 +187,22 @@ export default function ValidationRules() {
     } catch (error) {
       console.error("Failed to create validation rule:", error);
       setFormError(
-        "Failed to create validation rule. Please check the selected dataset and backend API."
+        "Failed to create validation rule. Please check the selected dataset and backend API.",
       );
+      showToast("Failed to create validation rule.", "error");
     } finally {
       setSaving(false);
     }
+  }
+
+  // Open view modal with selected rule details
+  function openViewModal(rule: ValidationRule) {
+    setViewingRule(rule);
+  }
+
+  // Close view modal
+  function closeViewModal() {
+    setViewingRule(null);
   }
 
   // Open edit modal with selected rule values
@@ -179,7 +214,6 @@ export default function ValidationRules() {
     setEditDescription(rule.description ?? "");
     setEditIsActive(rule.is_active);
     setEditError("");
-    setMessage("");
   }
 
   // Close edit modal
@@ -197,7 +231,6 @@ export default function ValidationRules() {
     if (!editingRule) return;
 
     setEditError("");
-    setMessage("");
 
     if (!editDatasetId) {
       setEditError("Please select a dataset.");
@@ -217,19 +250,20 @@ export default function ValidationRules() {
         name: editName.trim(),
         rule_type: editRuleType,
         description: editDescription.trim(),
-        configuration: {},
+        configuration: editingRule.configuration ?? {},
         is_active: editIsActive,
       });
 
       setEditingRule(null);
-      setMessage("Validation rule updated successfully!");
+      showToast("Validation rule updated successfully!", "success");
 
       await loadRules();
     } catch (error) {
       console.error("Failed to update validation rule:", error);
       setEditError(
-        "Failed to update validation rule. Please check the backend API."
+        "Failed to update validation rule. Please check the backend API.",
       );
+      showToast("Failed to update validation rule.", "error");
     } finally {
       setUpdating(false);
     }
@@ -238,19 +272,23 @@ export default function ValidationRules() {
   // Find dataset name for a rule
   function getDatasetName(id: number) {
     return (
-      datasets.find((dataset) => dataset.id === id)?.name ??
-      `Dataset #${id}`
+      datasets.find((dataset) => dataset.id === id)?.name ?? `Dataset #${id}`
     );
   }
 
   return (
     <PageContainer>
+      <Toast
+        message={toastMessage}
+        type={toastType}
+        duration={4000}
+        onClose={closeToast}
+      />
+
       {/* Page Header */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">
-            Validation Rules
-          </h2>
+          <h2 className="text-xl font-bold text-slate-900">Validation Rules</h2>
 
           <p className="mt-1 text-sm text-slate-500">
             Create and manage data quality validation rules.
@@ -259,16 +297,6 @@ export default function ValidationRules() {
 
         <Button onClick={openModal}>+ Create Rule</Button>
       </div>
-
-      {/* Success Message */}
-      {message && (
-        <div
-          role="status"
-          className="mb-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700"
-        >
-          {message}
-        </div>
-      )}
 
       {/* Create Rule Modal */}
       <Modal
@@ -384,14 +412,75 @@ export default function ValidationRules() {
             <Button
               type="submit"
               loading={saving}
-              disabled={
-                saving || datasetsLoading || datasets.length === 0
-              }
+              disabled={saving || datasetsLoading || datasets.length === 0}
             >
               {saving ? "Creating..." : "Create Rule"}
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* View Rule Modal */}
+      <Modal
+        isOpen={viewingRule !== null}
+        onClose={closeViewModal}
+        title="Validation Rule Details"
+        description="View the selected validation rule information."
+        size="lg"
+      >
+        {viewingRule && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Rule Name</p>
+                <p className="mt-1 break-words text-sm font-semibold text-slate-900">{viewingRule.name}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Dataset</p>
+                <p className="mt-1 text-sm text-slate-800">{getDatasetName(viewingRule.dataset_id)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Rule Type</p>
+                <p className="mt-1 text-sm text-slate-800">
+                  {RULE_TYPES.find((type) => type.value === viewingRule.rule_type)?.label ?? viewingRule.rule_type}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Status</p>
+                <div className="mt-1">
+                  <Badge status={viewingRule.is_active ? "success" : "neutral"}>
+                    {viewingRule.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                </div>
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Description</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-800">
+                  {viewingRule.description || "No description provided."}
+                </p>
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Configuration</p>
+                <pre className="mt-1 overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
+                  {JSON.stringify(viewingRule.configuration ?? {}, null, 2)}
+                </pre>
+              </div>
+              {viewingRule.created_at && (
+                <div className="sm:col-span-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Created At</p>
+                  <p className="mt-1 text-sm text-slate-800">
+                    {new Date(viewingRule.created_at).toLocaleString()}
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end border-t border-slate-100 pt-4">
+              <Button type="button" variant="secondary" onClick={closeViewModal}>
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Edit Rule Modal */}
@@ -480,9 +569,7 @@ export default function ValidationRules() {
 
           <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
             <div>
-              <p className="text-sm font-medium text-slate-700">
-                Rule Status
-              </p>
+              <p className="text-sm font-medium text-slate-700">Rule Status</p>
               <p className="mt-1 text-xs text-slate-500">
                 Enable or disable this validation rule.
               </p>
@@ -529,6 +616,78 @@ export default function ValidationRules() {
         </form>
       </Modal>
 
+      {/* Search and dataset filter */}
+      <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-[minmax(0,1fr)_240px_130px]">
+        <div>
+          <label
+            htmlFor="validation-rule-search"
+            className="mb-1.5 block text-sm font-medium text-slate-700"
+          >
+            Search validation rules
+          </label>
+          <input
+            id="validation-rule-search"
+            type="search"
+            value={searchTerm}
+            onChange={(event) => {
+              setSearchTerm(event.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Search name, description or rule type..."
+            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="validation-dataset-filter"
+            className="mb-1.5 block text-sm font-medium text-slate-700"
+          >
+            Filter by dataset
+          </label>
+          <select
+            id="validation-dataset-filter"
+            value={selectedDatasetFilter}
+            onChange={(event) => {
+              setSelectedDatasetFilter(event.target.value);
+              setCurrentPage(1);
+            }}
+            disabled={datasetsLoading}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100"
+          >
+            <option value="all">All datasets</option>
+            {datasets.map((dataset) => (
+              <option key={dataset.id} value={dataset.id}>
+                {dataset.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label
+            htmlFor="validation-page-size"
+            className="mb-1.5 block text-sm font-medium text-slate-700"
+          >
+            Rows per page
+          </label>
+          <select
+            id="validation-page-size"
+            value={pageSize}
+            onChange={(event) => {
+              setPageSize(Number(event.target.value));
+              setCurrentPage(1);
+            }}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
+      </div>
+
       {/* Loading / Error / Empty / Table */}
       {loading ? (
         <Loader message="Loading validation rules..." />
@@ -538,10 +697,7 @@ export default function ValidationRules() {
             {pageError}
           </p>
 
-          <Button
-            className="mt-4"
-            onClick={() => void loadRules()}
-          >
+          <Button className="mt-4" onClick={() => void loadRules()}>
             Try Again
           </Button>
         </div>
@@ -549,7 +705,11 @@ export default function ValidationRules() {
         <div className="rounded-xl border border-slate-200 bg-white">
           <EmptyState
             title="No validation rules found"
-            description="Create your first validation rule using the Create Rule button."
+            description={
+              searchTerm.trim() || selectedDatasetFilter !== "all"
+                ? "Try changing the search text or dataset filter."
+                : "Create your first validation rule using the Create Rule button."
+            }
           />
         </div>
       ) : (
@@ -581,9 +741,8 @@ export default function ValidationRules() {
                   </td>
 
                   <td className="px-5 py-4 text-slate-600">
-                    {RULE_TYPES.find(
-                      (type) => type.value === rule.rule_type
-                    )?.label ?? rule.rule_type}
+                    {RULE_TYPES.find((type) => type.value === rule.rule_type)
+                      ?.label ?? rule.rule_type}
                   </td>
 
                   <td className="px-5 py-4 text-slate-600">
@@ -591,42 +750,96 @@ export default function ValidationRules() {
                   </td>
 
                   <td className="px-5 py-4">
-                    <Badge
-                      status={rule.is_active ? "success" : "neutral"}
-                    >
+                    <Badge status={rule.is_active ? "success" : "neutral"}>
                       {rule.is_active ? "Active" : "Inactive"}
                     </Badge>
                   </td>
 
                   <td className="px-5 py-4 text-center">
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(rule)}
-                      title="Edit validation rule"
-                      aria-label={`Edit ${rule.name}`}
-                      className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
+                    <div className="inline-flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openViewModal(rule)}
+                        title="View validation rule"
+                        aria-label={`View ${rule.name}`}
+                        className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300"
                       >
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
-                      </svg>
-                    </button>
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(rule)}
+                        title="Edit validation rule"
+                        aria-label={`Edit ${rule.name}`}
+                        className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M12 20h9" />
+                          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+                        </svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!loading && !pageError && totalRules > 0 && (
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-slate-500">
+            Showing {Math.min((currentPage - 1) * pageSize + 1, totalRules)}–
+            {Math.min(currentPage * pageSize, totalRules)} of {totalRules} rules
+          </p>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              disabled={currentPage <= 1 || loading}
+              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+            >
+              Previous
+            </Button>
+            <span className="px-2 text-sm text-slate-600">
+              Page {currentPage} of {Math.max(totalPages, 1)}
+            </span>
+            <Button
+              variant="secondary"
+              disabled={currentPage >= totalPages || loading || totalPages === 0}
+              onClick={() =>
+                setCurrentPage((page) => Math.min(Math.max(totalPages, 1), page + 1))
+              }
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </PageContainer>

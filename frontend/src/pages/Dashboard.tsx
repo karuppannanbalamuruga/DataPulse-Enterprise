@@ -35,7 +35,7 @@ export default function Dashboard() {
       ]);
 
       setDatasets(datasetData.items);
-      setRules(ruleData);
+      setRules(ruleData.items);
       setRuns(runData);
     } catch (err) {
       console.error("Dashboard API error:", err);
