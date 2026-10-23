@@ -34,7 +34,7 @@ export default function Dashboard() {
         getProcessingRuns(),
       ]);
 
-      setDatasets(datasetData);
+      setDatasets(datasetData.items);
       setRules(ruleData);
       setRuns(runData);
     } catch (err) {

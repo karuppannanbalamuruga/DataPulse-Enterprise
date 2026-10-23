@@ -67,7 +67,7 @@ export default function ProcessingRuns() {
       setFormError("");
 
       const data = await getDatasets();
-      setDatasets(data);
+      setDatasets(data.items);
     } catch (err) {
       console.error("Failed to load datasets:", err);
       setFormError("Unable to load datasets. Please try again.");

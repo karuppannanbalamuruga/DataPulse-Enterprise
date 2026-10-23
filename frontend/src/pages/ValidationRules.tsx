@@ -88,7 +88,7 @@ export default function ValidationRules() {
       setDatasetsLoading(true);
 
       const data = await getDatasets();
-      setDatasets(data);
+      setDatasets(data.items);
     } catch (error) {
       console.error("Failed to load datasets:", error);
       setFormError("Unable to load datasets. Please try again.");

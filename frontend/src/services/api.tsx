@@ -1,6 +1,12 @@
 import api from "./axiosConfig";
 
-import type { Dataset, CreateDatasetPayload } from "../types/dataset";
+import type {
+  Dataset,
+  CreateDatasetPayload,
+  UpdateDatasetPayload,
+  DatasetListResponse,
+  DatasetQueryParams,
+} from "../types/dataset";
 
 import type {
   ValidationRule,
@@ -16,8 +22,25 @@ import type { ProcessingRun } from "../types/processingRun";
 // =====================================================
 
 // GET: Retrieve all datasets
-export const getDatasets = async (): Promise<Dataset[]> => {
-  const response = await api.get<Dataset[]>("/api/v1/datasets");
+export const getDatasets = async (
+  params: DatasetQueryParams = {},
+): Promise<DatasetListResponse> => {
+  const response = await api.get<DatasetListResponse>(
+    "/api/v1/datasets",
+    { params },
+  );
+
+  return response.data;
+};
+
+
+export const getDataset = async (
+  id: number,
+): Promise<Dataset> => {
+  const response = await api.get<Dataset>(
+    `/api/v1/datasets/${id}`,
+  );
+
   return response.data;
 };
 
@@ -25,22 +48,23 @@ export const getDatasets = async (): Promise<Dataset[]> => {
 export const createDataset = async (
   payload: CreateDatasetPayload,
 ): Promise<Dataset> => {
-  const response = await api.post<Dataset>("/api/v1/datasets", payload);
+  const response = await api.post<Dataset>(
+    "/api/v1/datasets",
+    payload,
+  );
+
   return response.data;
 };
 
 // PUT: Update a dataset
 export const updateDataset = async (
   id: number,
-  payload: {
-    organization_id: number;
-    name: string;
-    description?: string;
-    source_type?: string;
-    status?: string;
-  },
+  payload: UpdateDatasetPayload,
 ): Promise<Dataset> => {
-  const response = await api.put<Dataset>(`/api/v1/datasets/${id}`, payload);
+  const response = await api.patch<Dataset>(
+    `/api/v1/datasets/${id}`,
+    payload,
+  );
 
   return response.data;
 };
