@@ -36,7 +36,7 @@ export default function Dashboard() {
 
       setDatasets(datasetData.items);
       setRules(ruleData.items);
-      setRuns(runData);
+      setRuns(runData.items);
     } catch (err) {
       console.error("Dashboard API error:", err);
       setError("Unable to load dashboard data. Please check the backend.");

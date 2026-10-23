@@ -1,7 +1,12 @@
-
 from datetime import datetime
 
-from sqlalchemy import String, ForeignKey, DateTime, Text
+from sqlalchemy import (
+    Integer,
+    String,
+    ForeignKey,
+    DateTime,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -10,7 +15,10 @@ from app.db.database import Base
 class ProcessingRun(Base):
     __tablename__ = "processing_runs"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
+    )
 
     dataset_id: Mapped[int] = mapped_column(
         ForeignKey("datasets.id", ondelete="CASCADE"),
@@ -22,19 +30,24 @@ class ProcessingRun(Base):
         String(30),
         nullable=False,
         default="pending",
+        index=True,
     )
 
     records_processed: Mapped[int] = mapped_column(
-        default=0,
+        Integer,
         nullable=False,
+        default=0,
     )
 
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
 
     started_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
         nullable=False,
+        default=datetime.utcnow,
     )
 
     completed_at: Mapped[datetime | None] = mapped_column(
@@ -42,4 +55,7 @@ class ProcessingRun(Base):
         nullable=True,
     )
 
-    dataset = relationship("Dataset", back_populates="processing_runs")
+    dataset = relationship(
+        "Dataset",
+        back_populates="processing_runs",
+    )
