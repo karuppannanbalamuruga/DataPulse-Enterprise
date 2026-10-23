@@ -37,3 +37,11 @@ export interface UpdateProcessingRunPayload {
   error_message?: string | null;
   completed_at?: string | null;
 }
+
+export interface ProcessingRunListResponse {
+  items: ProcessingRun[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}

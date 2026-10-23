@@ -1,5 +1,6 @@
 
 import { useCallback, useEffect, useState } from "react";
+
 import PageContainer from "../components/layout/PageContainer";
 import Button from "../components/common/Button";
 import Loader from "../components/common/Loader";
@@ -9,53 +10,76 @@ import {
   getDatasets,
   getValidationRules,
   getProcessingRuns,
+  getFailedProcessingRuns,
 } from "../services/api";
 
-import type { Dataset } from "../types/dataset";
-import type { ValidationRule } from "../types/validationRule";
 import type { ProcessingRun } from "../types/processingRun";
 
 export default function Dashboard() {
-  const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [rules, setRules] = useState<ValidationRule[]>([]);
   const [runs, setRuns] = useState<ProcessingRun[]>([]);
+
+  const [totalDatasets, setTotalDatasets] = useState(0);
+  const [totalRules, setTotalRules] = useState(0);
+  const [totalRuns, setTotalRuns] = useState(0);
+  const [failedRuns, setFailedRuns] = useState(0);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
+  const [totalPages, setTotalPages] = useState(0);
+
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  // Load dashboard data from backend APIs
-  const loadDashboard = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
+  // Fetch dashboard counts and the current page of processing runs
+  const loadDashboard = useCallback(
+    async (isRefresh = false) => {
+      try {
+        if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
 
-      const [datasetData, ruleData, runData] = await Promise.all([
-        getDatasets(),
-        getValidationRules(),
-        getProcessingRuns(),
-      ]);
+        setError("");
 
-      setDatasets(datasetData.items);
-      setRules(ruleData.items);
-      setRuns(runData.items);
-    } catch (err) {
-      console.error("Dashboard API error:", err);
-      setError("Unable to load dashboard data. Please check the backend.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+        const [
+          datasetData,
+          ruleData,
+          runData,
+          failedRunData,
+        ] = await Promise.all([
+          getDatasets(),
+          getValidationRules(),
+          getProcessingRuns({
+            page: currentPage,
+            page_size: pageSize,
+          }),
+          getFailedProcessingRuns(1, 1),
+        ]);
+        setRuns(runData.items);
+
+        setTotalDatasets(datasetData.total);
+        setTotalRules(ruleData.total);
+        setTotalRuns(runData.total);
+        setFailedRuns(failedRunData.total);
+        setTotalPages(runData.total_pages);
+      } catch (err) {
+        console.error("Dashboard API error:", err);
+        setError(
+          "Unable to load dashboard data. Please check the backend server."
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [currentPage, pageSize]
+  );
 
   useEffect(() => {
     void loadDashboard();
   }, [loadDashboard]);
-
-  // Calculate metrics from actual API data
-  const totalDatasets = datasets.length;
-  const totalRules = rules.length;
-  const totalRuns = runs.length;
-  const failedRuns = runs.filter(
-    (run) => run.status?.toLowerCase() === "failed"
-  ).length;
 
   function getStatus(status: string) {
     switch (status?.toLowerCase()) {
@@ -64,6 +88,7 @@ export default function Dashboard() {
       case "failed":
         return "error" as const;
       case "running":
+      case "processing":
         return "info" as const;
       case "pending":
         return "warning" as const;
@@ -109,6 +134,11 @@ export default function Dashboard() {
     },
   ];
 
+  const startRecord =
+    totalRuns === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+
+  const endRecord = Math.min(currentPage * pageSize, totalRuns);
+
   if (loading) {
     return (
       <PageContainer>
@@ -129,17 +159,9 @@ export default function Dashboard() {
             Overview of your DataPulse Enterprise platform.
           </p>
         </div>
-
-        {/* <Button
-          variant="secondary"
-          onClick={() => void loadDashboard()}
-          disabled={loading}
-        >
-          Refresh Data
-        </Button> */}
       </div>
 
-      {/* API error message */}
+      {/* Error message */}
       {error && (
         <div
           role="alert"
@@ -155,7 +177,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Dashboard metric cards */}
+      {/* Metric cards */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
           <div
@@ -165,11 +187,9 @@ export default function Dashboard() {
             <p className="text-sm font-medium text-slate-500">
               {metric.title}
             </p>
-
             <p className={`mt-3 text-3xl font-bold ${metric.color}`}>
               {metric.value}
             </p>
-
             <p className="mt-2 text-xs text-slate-400">
               {metric.description}
             </p>
@@ -198,25 +218,23 @@ export default function Dashboard() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-6 py-4 font-medium">Run ID</th>
-                  <th className="px-6 py-4 font-medium">Dataset ID</th>
-                  <th className="px-6 py-4 font-medium">Status</th>
-                  <th className="px-6 py-4 font-medium">
-                    Records Processed
-                  </th>
-                  <th className="px-6 py-4 font-medium">Started At</th>
-                </tr>
-              </thead>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-6 py-4 font-medium">Run ID</th>
+                    <th className="px-6 py-4 font-medium">Dataset ID</th>
+                    <th className="px-6 py-4 font-medium">Status</th>
+                    <th className="px-6 py-4 font-medium">
+                      Records Processed
+                    </th>
+                    <th className="px-6 py-4 font-medium">Started At</th>
+                  </tr>
+                </thead>
 
-              <tbody>
-                {[...runs]
-                  .sort((a, b) => b.id - a.id)
-                  .slice(0, 5)
-                  .map((run) => (
+                <tbody>
+                  {runs.map((run) => (
                     <tr
                       key={run.id}
                       className="border-t border-slate-100 hover:bg-slate-50"
@@ -224,29 +242,95 @@ export default function Dashboard() {
                       <td className="px-6 py-4 font-medium text-slate-800">
                         #{run.id}
                       </td>
-
-                      <td className="px-6 py-4">
-                        {run.dataset_id}
-                      </td>
-
+                      <td className="px-6 py-4">{run.dataset_id}</td>
                       <td className="px-6 py-4">
                         <Badge status={getStatus(run.status)}>
                           {run.status}
                         </Badge>
                       </td>
-
                       <td className="px-6 py-4">
                         {run.records_processed ?? 0}
                       </td>
-
                       <td className="px-6 py-4 text-slate-500">
                         {formatDate(run.started_at)}
                       </td>
                     </tr>
                   ))}
-              </tbody>
-            </table>
-          </div>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            <div className="flex flex-col gap-4 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm text-slate-500">
+                  Showing{" "}
+                  <span className="font-medium text-slate-800">
+                    {startRecord}–{endRecord}
+                  </span>{" "}
+                  of{" "}
+                  <span className="font-medium text-slate-800">
+                    {totalRuns}
+                  </span>{" "}
+                  runs
+                </p>
+
+                <label
+                  htmlFor="runs-page-size"
+                  className="text-sm text-slate-500"
+                >
+                  Rows per page
+                </label>
+
+                <select
+                  id="runs-page-size"
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="secondary"
+                  disabled={currentPage <= 1 || refreshing}
+                  onClick={() =>
+                    setCurrentPage((page) => Math.max(1, page - 1))
+                  }
+                >
+                  Previous
+                </Button>
+
+                <span className="whitespace-nowrap text-sm text-slate-700">
+                  Page {currentPage} of {Math.max(totalPages, 1)}
+                </span>
+
+                <Button
+                  variant="secondary"
+                  disabled={
+                    currentPage >= totalPages ||
+                    totalPages === 0 ||
+                    refreshing
+                  }
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.min(totalPages, page + 1)
+                    )
+                  }
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </>
         )}
       </section>
     </PageContainer>

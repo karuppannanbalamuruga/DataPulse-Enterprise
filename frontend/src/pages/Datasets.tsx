@@ -270,11 +270,11 @@ export default function Datasets() {
 
       closeModal();
 
-      // Return to the first page after creating or updating a dataset.
-      setPage(1);
-
-      // Reload the list after saving.
-      await loadDatasets();
+      if (page !== 1) {
+        setPage(1);
+      } else {
+        await loadDatasets();
+      }
     } catch (error) {
       console.error("Failed to save dataset:", error);
       setFormError(

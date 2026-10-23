@@ -1,5 +1,10 @@
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type FormEvent,
+} from "react";
 
 import PageContainer from "../components/layout/PageContainer";
 import Button from "../components/common/Button";
@@ -14,26 +19,35 @@ import {
   updateOrganization,
 } from "../services/api";
 
-interface Organization {
-  id: number;
-  name: string;
-  slug: string;
-}
+import type {
+  Organization,
+  CreateOrganizationPayload,
+  UpdateOrganizationPayload,
+} from "../types/organization";
 
 export default function Organizations() {
+  // Organization data
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Create modal state
+  // Server-side search and pagination
+  const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Create modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Edit modal state
+  // Edit modal
   const [editingOrganization, setEditingOrganization] =
     useState<Organization | null>(null);
   const [editName, setEditName] = useState("");
@@ -41,40 +55,66 @@ export default function Organizations() {
   const [editError, setEditError] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
-  // Load organizations from the backend
+  // View modal
+  const [viewOrganization, setViewOrganization] =
+    useState<Organization | null>(null);
+
+  // Load data from backend
   const loadOrganizations = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
 
-      const data = await getOrganizations();
-      setOrganizations(data as Organization[]);
+      const response = await getOrganizations({
+        page: currentPage,
+        page_size: pageSize,
+        search: search.trim(),
+      });
+
+      setOrganizations(response.items);
+      setTotal(response.total);
+      setTotalPages(response.total_pages);
     } catch (err) {
       console.error("Failed to load organizations:", err);
-      setError("Unable to load organizations. Check your backend server.");
+      setError("Unable to load organizations. Please check the backend server.");
+      setOrganizations([]);
+      setTotal(0);
+      setTotalPages(0);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentPage, pageSize, search, refreshKey]);
 
   useEffect(() => {
     void loadOrganizations();
   }, [loadOrganizations]);
 
-  // Automatically generate a URL-friendly slug
-  function handleNameChange(value: string) {
-    setName(value);
-
-    setSlug(
-      value
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-    );
+  // Slug generation
+  function generateSlug(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
   }
 
-  // Create organization
+  function isValidSlug(value: string): boolean {
+    return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+  }
+
+  // Search handler
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    setCurrentPage(1);
+  }
+
+  // Page size handler
+  function handlePageSizeChange(value: number) {
+    setPageSize(value);
+    setCurrentPage(1);
+  }
+
+  // CREATE organization
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -89,40 +129,34 @@ export default function Organizations() {
       return;
     }
 
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmedSlug)) {
+    if (!isValidSlug(trimmedSlug)) {
       setFormError(
         "Use lowercase letters, numbers, and single hyphens in the slug."
       );
       return;
     }
 
-    const slugExists = organizations.some(
-      (organization) => organization.slug.toLowerCase() === trimmedSlug
-    );
-
-    if (slugExists) {
-      setFormError("This slug already exists. Please use a different slug.");
-      return;
-    }
+    const payload: CreateOrganizationPayload = {
+      name: trimmedName,
+      slug: trimmedSlug,
+    };
 
     try {
       setSaving(true);
 
-      await createOrganization({
-        name: trimmedName,
-        slug: trimmedSlug,
-      });
+      await createOrganization(payload);
 
       setIsModalOpen(false);
       setName("");
       setSlug("");
+      setSearch("");
+      setCurrentPage(1);
       setSuccess("Organization created successfully.");
-
-      await loadOrganizations();
+      setRefreshKey((previous) => previous + 1);
     } catch (err) {
       console.error("Failed to create organization:", err);
       setFormError(
-        "Unable to create organization. Check the details and try again."
+        "Unable to create organization. The name or slug may already exist."
       );
     } finally {
       setSaving(false);
@@ -138,7 +172,7 @@ export default function Organizations() {
     setFormError("");
   }
 
-  // Open edit modal and populate selected organization details
+  // Open edit modal
   function openEditModal(organization: Organization) {
     setEditingOrganization(organization);
     setEditName(organization.name);
@@ -156,7 +190,7 @@ export default function Organizations() {
     setEditError("");
   }
 
-  // Update organization through the API
+  // UPDATE organization using PATCH
   async function handleUpdate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -173,47 +207,40 @@ export default function Organizations() {
       return;
     }
 
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmedSlug)) {
+    if (!isValidSlug(trimmedSlug)) {
       setEditError(
         "Use lowercase letters, numbers, and single hyphens in the slug."
       );
       return;
     }
 
-    const slugExists = organizations.some(
-      (organization) =>
-        organization.id !== editingOrganization.id &&
-        organization.slug.toLowerCase() === trimmedSlug
-    );
-
-    if (slugExists) {
-      setEditError("This slug already exists. Please use a different slug.");
-      return;
-    }
+    const payload: UpdateOrganizationPayload = {
+      name: trimmedName,
+      slug: trimmedSlug,
+    };
 
     try {
       setEditSaving(true);
 
-      await updateOrganization(editingOrganization.id, {
-        name: trimmedName,
-        slug: trimmedSlug,
-      });
+      await updateOrganization(editingOrganization.id, payload);
 
       setEditingOrganization(null);
       setEditName("");
       setEditSlug("");
       setSuccess("Organization updated successfully.");
-
-      await loadOrganizations();
+      setRefreshKey((previous) => previous + 1);
     } catch (err) {
       console.error("Failed to update organization:", err);
       setEditError(
-        "Unable to update organization. Check the details and try again."
+        "Unable to update organization. The name or slug may already exist."
       );
     } finally {
       setEditSaving(false);
     }
   }
+
+  const startRecord = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endRecord = Math.min(currentPage * pageSize, total);
 
   return (
     <PageContainer>
@@ -251,14 +278,13 @@ export default function Organizations() {
         </div>
       )}
 
-      {/* API error message */}
+      {/* API error */}
       {error && (
         <div
           role="alert"
           className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4"
         >
           <p className="text-sm text-red-700">{error}</p>
-
           <Button
             className="mt-3"
             onClick={() => void loadOrganizations()}
@@ -268,94 +294,203 @@ export default function Organizations() {
         </div>
       )}
 
-      {/* Organization summary */}
-      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm font-medium text-slate-500">
-          Total Organizations
-        </p>
-
-        <p className="mt-2 text-3xl font-bold text-blue-600">
-          {organizations.length}
-        </p>
-      </div>
-
-      {/* Organization table */}
-      {loading ? (
-        <Loader message="Loading organizations..." />
-      ) : error && organizations.length === 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-6">
-          <p className="text-sm text-slate-500">
-            Organization data is unavailable.
+      {/* Summary cards */}
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm font-medium text-slate-500">
+            Total Organizations
+          </p>
+          <p className="mt-2 text-3xl font-bold text-blue-600">
+            {total}
           </p>
         </div>
-      ) : organizations.length === 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white">
+
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm font-medium text-slate-500">
+            Organizations on This Page
+          </p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">
+            {organizations.length}
+          </p>
+        </div>
+      </div>
+
+      {/* Search and page size */}
+      <div className="mb-4 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="w-full sm:max-w-md">
+          <label
+            htmlFor="organization-search"
+            className="mb-2 block text-sm font-medium text-slate-700"
+          >
+            Search Organizations
+          </label>
+
+          <input
+            id="organization-search"
+            type="search"
+            value={search}
+            onChange={(event) => handleSearchChange(event.target.value)}
+            placeholder="Search by name, slug or ID..."
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <label
+            htmlFor="organization-page-size"
+            className="whitespace-nowrap text-sm text-slate-600"
+          >
+            Rows per page
+          </label>
+
+          <select
+            id="organization-page-size"
+            value={pageSize}
+            onChange={(event) =>
+              handlePageSizeChange(Number(event.target.value))
+            }
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Organizations table */}
+      {loading ? (
+        <Loader message="Loading organizations..." />
+      ) : error ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-6">
           <EmptyState
-            title="No organizations found"
-            description="Create your first organization to get started."
+            title="Unable to load organizations"
+            description="Check your backend connection and try again."
+          />
+        </div>
+      ) : organizations.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-6">
+          <EmptyState
+            title={
+              search.trim()
+                ? "No matching organizations"
+                : "No organizations found"
+            }
+            description={
+              search.trim()
+                ? "Try a different name, slug, or organization ID."
+                : "Create your first organization to get started."
+            }
           />
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
-              <tr>
-                <th className="px-6 py-4 font-medium">Organization ID</th>
-                <th className="px-6 py-4 font-medium">Organization Name</th>
-                <th className="px-6 py-4 font-medium">Slug</th>
-                <th className="px-6 py-4 text-center font-medium">Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {organizations.map((organization) => (
-                <tr
-                  key={organization.id}
-                  className="border-t border-slate-100 hover:bg-slate-50"
-                >
-                  <td className="px-6 py-4 font-medium text-slate-700">
-                    #{organization.id}
-                  </td>
-
-                  <td className="px-6 py-4 font-medium text-slate-900">
-                    {organization.name}
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-600">
-                      {organization.slug}
-                    </span>
-                  </td>
-
-                  <td className="px-6 py-4 text-center">
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(organization)}
-                      title="Edit organization"
-                      aria-label={`Edit ${organization.name}`}
-                      className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
-                      </svg>
-                    </button>
-                  </td>
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-6 py-4 font-medium">
+                    Organization ID
+                  </th>
+                  <th className="px-6 py-4 font-medium">
+                    Organization Name
+                  </th>
+                  <th className="px-6 py-4 font-medium">Slug</th>
+                  <th className="px-6 py-4 text-center font-medium">
+                    Actions
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+
+              <tbody>
+                {organizations.map((organization) => (
+                  <tr
+                    key={organization.id}
+                    className="border-t border-slate-100 hover:bg-slate-50"
+                  >
+                    <td className="px-6 py-4 font-medium text-slate-700">
+                      #{organization.id}
+                    </td>
+
+                    <td className="px-6 py-4 font-medium text-slate-900">
+                      {organization.name}
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-600">
+                        {organization.slug}
+                      </span>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        <Button
+                          variant="secondary"
+                          onClick={() => setViewOrganization(organization)}
+                        >
+                          View
+                        </Button>
+
+                        <Button
+                          onClick={() => openEditModal(organization)}
+                        >
+                          Edit
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <p className="text-sm text-slate-500">
+              Showing{" "}
+              <span className="font-medium text-slate-700">
+                {startRecord}–{endRecord}
+              </span>{" "}
+              of{" "}
+              <span className="font-medium text-slate-700">
+                {total}
+              </span>{" "}
+              organizations
+            </p>
+
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <Button
+                variant="secondary"
+                disabled={currentPage <= 1 || loading}
+                onClick={() =>
+                  setCurrentPage((page) => Math.max(1, page - 1))
+                }
+              >
+                Previous
+              </Button>
+
+              <span className="whitespace-nowrap text-sm text-slate-700">
+                Page {currentPage} of {Math.max(totalPages, 1)}
+              </span>
+
+              <Button
+                variant="secondary"
+                disabled={
+                  currentPage >= totalPages ||
+                  totalPages === 0 ||
+                  loading
+                }
+                onClick={() =>
+                  setCurrentPage((page) =>
+                    Math.min(totalPages, page + 1)
+                  )
+                }
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -372,7 +507,10 @@ export default function Organizations() {
             label="Organization Name"
             placeholder="e.g. Acme Technologies"
             value={name}
-            onChange={(event) => handleNameChange(event.target.value)}
+            onChange={(event) => {
+              setName(event.target.value);
+              setSlug(generateSlug(event.target.value));
+            }}
             required
           />
 
@@ -465,6 +603,49 @@ export default function Organizations() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* View Organization Modal */}
+      <Modal
+        isOpen={viewOrganization !== null}
+        onClose={() => setViewOrganization(null)}
+        title="Organization Details"
+        description="View organization information."
+        size="md"
+      >
+        {viewOrganization && (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Organization ID</p>
+              <p className="mt-1 font-semibold text-slate-900">
+                #{viewOrganization.id}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Organization Name</p>
+              <p className="mt-1 font-semibold text-slate-900">
+                {viewOrganization.name}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Slug</p>
+              <p className="mt-1 break-all font-mono text-slate-900">
+                {viewOrganization.slug}
+              </p>
+            </div>
+
+            <div className="flex justify-end border-t border-slate-100 pt-4">
+              <Button
+                type="button"
+                onClick={() => setViewOrganization(null)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </PageContainer>
   );

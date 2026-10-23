@@ -62,13 +62,25 @@ def test_create_organization(client):
     assert response.json()["slug"] == "test-organization"
 
 
+
 def test_get_organizations(client):
     create_organization(client)
 
     response = client.get("/api/v1/organizations")
 
     assert response.status_code == 200
-    assert len(response.json()) == 1
+
+    data = response.json()
+
+    assert len(data["items"]) == 1
+    assert data["total"] == 1
+    assert data["page"] == 1
+    assert data["page_size"] == 10
+    assert data["total_pages"] == 1
+
+    assert data["items"][0]["name"] == "Test Organization"
+    assert data["items"][0]["slug"] == "test-organization"
+
 
 
 def test_create_organization_without_name(client):
@@ -95,7 +107,7 @@ def test_update_organization(client):
     created = create_organization(client)
     organization_id = created.json()["id"]
 
-    response = client.put(
+    response = client.patch(
         f"/api/v1/organizations/{organization_id}",
         json={
             "name": "Updated Organization",
@@ -109,7 +121,7 @@ def test_update_organization(client):
 
 
 def test_update_missing_organization(client):
-    response = client.put(
+    response = client.patch(
         "/api/v1/organizations/999999",
         json={
             "name": "Updated Organization",

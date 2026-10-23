@@ -11,7 +11,7 @@ DatasetStatus = Literal["pending", "processing", "completed", "failed"]
 
 class DatasetCreate(BaseModel):
     organization_id: int = Field(gt=0)
-    name: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=150)
     description: str | None = None
     source_type: SourceType = "file"
 
