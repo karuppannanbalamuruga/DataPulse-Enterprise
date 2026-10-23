@@ -1,26 +1,38 @@
 from datetime import datetime
-from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class ValidationRuleCreate(BaseModel):
+ProcessingStatus = Literal["pending", "running", "processing", "completed", "failed"]
+
+
+class ProcessingRunCreate(BaseModel):
     dataset_id: int = Field(gt=0)
-    name: str = Field(min_length=1, max_length=150)
-    rule_type: str = Field(min_length=1, max_length=50)
-    description: str | None = None
-    configuration: dict[str, Any] = Field(default_factory=dict)
-    is_active: bool = True
 
 
-class ValidationRuleResponse(BaseModel):
+class ProcessingRunUpdate(BaseModel):
+    status: ProcessingStatus | None = None
+    records_processed: int | None = Field(default=None, ge=0)
+    error_message: str | None = None
+    completed_at: datetime | None = None
+
+
+class ProcessingRunResponse(BaseModel):
     id: int
     dataset_id: int
-    name: str
-    rule_type: str
-    description: str | None
-    configuration: dict[str, Any]
-    is_active: bool
-    created_at: datetime
+    status: str
+    records_processed: int = Field(ge=0)
+    error_message: str | None = None
+    started_at: datetime
+    completed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProcessingRunListResponse(BaseModel):
+    items: list[ProcessingRunResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
