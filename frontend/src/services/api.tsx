@@ -69,6 +69,12 @@ export const updateDataset = async (
   return response.data;
 };
 
+// Delete Dataset
+export const deleteDataset = async (id: number): Promise<void> => {
+  await api.delete(`/api/v1/datasets/${id}`);
+}
+
+
 // =====================================================
 // 2. VALIDATION RULE APIs
 // =====================================================
@@ -115,6 +121,13 @@ export const updateValidationRule = async (
   );
 
   return response.data;
+};
+
+// Delete Validation Rule
+export const deleteValidationRule = async (
+  id: number,
+): Promise<void> => {
+  await api.delete(`/api/v1/validation-rules/${id}`);
 };
 
 // =====================================================
@@ -165,6 +178,13 @@ export const updateOrganization = async (
   );
 
   return response.data;
+};
+
+// Delete Organization
+export const deleteOrganization = async (
+  id: number,
+): Promise<void> => {
+  await api.delete(`/api/v1/organizations/${id}`);
 };
 
 // =====================================================
@@ -218,6 +238,13 @@ export const updateProcessingRun = async (
   );
 
   return response.data;
+};
+
+// Delete Processing Run
+export const deleteProcessingRun = async (
+  id: number,
+): Promise<void> => {
+  await api.delete(`/api/v1/processing-runs/${id}`);
 };
 
 export const getFailedProcessingRuns = async (

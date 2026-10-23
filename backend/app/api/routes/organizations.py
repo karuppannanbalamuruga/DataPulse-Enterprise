@@ -1,11 +1,11 @@
+from math import ceil
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
 from app.models.organization import Organization
-from math import ceil
-from fastapi import Depends, Query
 
 router = APIRouter(
     prefix="/api/v1/organizations",
@@ -19,6 +19,25 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_organization_or_404(
+    organization_id: int,
+    db: Session,
+) -> Organization:
+    organization = (
+        db.query(Organization)
+        .filter(Organization.id == organization_id)
+        .first()
+    )
+
+    if organization is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Organization not found",
+        )
+
+    return organization
 
 
 # GET API 1: Get all organizations
@@ -55,19 +74,7 @@ def get_organization(
     organization_id: int,
     db: Session = Depends(get_db),
 ):
-    organization = (
-        db.query(Organization)
-        .filter(Organization.id == organization_id)
-        .first()
-    )
-
-    if organization is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Organization not found",
-        )
-
-    return organization
+    return get_organization_or_404(organization_id, db)
 
 
 # POST API: Create organization
@@ -102,7 +109,7 @@ def create_organization(
         db.commit()
         db.refresh(organization)
         return organization
-    except Exception:
+    except IntegrityError:
         db.rollback()
         raise HTTPException(
             status_code=409,
@@ -117,22 +124,18 @@ def update_organization(
     payload: dict,
     db: Session = Depends(get_db),
 ):
-    organization = (
-        db.query(Organization)
-        .filter(Organization.id == organization_id)
-        .first()
-    )
-
-    if organization is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Organization not found",
-        )
+    organization = get_organization_or_404(organization_id, db)
 
     if not payload:
         raise HTTPException(
             status_code=400,
             detail="At least one field (name or slug) is required",
+        )
+
+    if not set(payload.keys()).issubset({"name", "slug"}):
+        raise HTTPException(
+            status_code=400,
+            detail="Only name and slug can be updated",
         )
 
     if "name" in payload:
@@ -157,19 +160,43 @@ def update_organization(
 
         organization.slug = slug.strip()
 
-    if not set(payload.keys()).issubset({"name", "slug"}):
-        raise HTTPException(
-            status_code=400,
-            detail="Only name and slug can be updated",
-        )
-
     try:
         db.commit()
         db.refresh(organization)
         return organization
-    except Exception:
+    except IntegrityError:
         db.rollback()
         raise HTTPException(
             status_code=409,
             detail="Organization could not be updated. Name or slug may already exist.",
         )
+
+
+# DELETE API: Delete organization by ID
+@router.delete("/{organization_id}", status_code=204)
+def delete_organization(
+    organization_id: int,
+    db: Session = Depends(get_db),
+):
+    organization = get_organization_or_404(organization_id, db)
+
+    try:
+        db.delete(organization)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Organization cannot be deleted because it has related records "
+                "or a database constraint prevents deletion."
+            ),
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="A database error occurred while deleting the organization.",
+        )
+
+    return Response(status_code=204)

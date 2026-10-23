@@ -1,9 +1,8 @@
-
 from math import ceil
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
@@ -249,3 +248,32 @@ def update_dataset(
             status_code=409,
             detail="Dataset could not be updated because of a database constraint.",
         )
+
+
+@router.delete("/{dataset_id}", status_code=204)
+def delete_dataset(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+):
+    dataset = get_dataset_or_404(dataset_id, db)
+
+    try:
+        db.delete(dataset)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Dataset cannot be deleted because related records "
+                "or database constraints prevent deletion."
+            ),
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="A database error occurred while deleting the dataset.",
+        )
+
+    return Response(status_code=204)

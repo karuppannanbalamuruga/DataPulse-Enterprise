@@ -1,11 +1,11 @@
-
 from datetime import datetime
 from math import ceil
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
@@ -76,18 +76,13 @@ def get_processing_runs(
     query = db.query(ProcessingRun)
 
     if dataset_id is not None:
-        query = query.filter(
-            ProcessingRun.dataset_id == dataset_id
-        )
+        query = query.filter(ProcessingRun.dataset_id == dataset_id)
 
     if status is not None:
-        query = query.filter(
-            ProcessingRun.status == status
-        )
+        query = query.filter(ProcessingRun.status == status)
 
     if search and search.strip():
         term = f"%{search.strip()}%"
-
         query = query.join(
             Dataset,
             ProcessingRun.dataset_id == Dataset.id,
@@ -206,7 +201,7 @@ def create_processing_run(
         db.refresh(run)
         return run
 
-    except Exception:
+    except SQLAlchemyError:
         db.rollback()
         raise HTTPException(
             status_code=400,
@@ -267,9 +262,49 @@ def patch_processing_run(
         db.refresh(run)
         return run
 
-    except Exception:
+    except SQLAlchemyError:
         db.rollback()
         raise HTTPException(
             status_code=400,
             detail="Could not update processing run",
         )
+
+
+# DELETE processing run
+@router.delete("/{run_id}", status_code=204)
+def delete_processing_run(
+    run_id: int,
+    db: Session = Depends(get_db),
+):
+    run = (
+        db.query(ProcessingRun)
+        .filter(ProcessingRun.id == run_id)
+        .first()
+    )
+
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Processing run not found",
+        )
+
+    try:
+        db.delete(run)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Processing run cannot be deleted because related records "
+                "or a database constraint prevents deletion."
+            ),
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="A database error occurred while deleting the processing run.",
+        )
+
+    return Response(status_code=204)

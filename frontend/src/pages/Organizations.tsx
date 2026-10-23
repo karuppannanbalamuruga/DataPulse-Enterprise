@@ -1,10 +1,4 @@
-
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import PageContainer from "../components/layout/PageContainer";
 import Button from "../components/common/Button";
@@ -17,6 +11,7 @@ import {
   getOrganizations,
   createOrganization,
   updateOrganization,
+  deleteOrganization,
 } from "../services/api";
 
 import type {
@@ -56,8 +51,15 @@ export default function Organizations() {
   const [editSaving, setEditSaving] = useState(false);
 
   // View modal
-  const [viewOrganization, setViewOrganization] =
+  const [viewOrganization, setViewOrganization] = useState<Organization | null>(
+    null,
+  );
+
+  // Delete confirmation modal
+  const [deletingOrganization, setDeletingOrganization] =
     useState<Organization | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   // Load data from backend
   const loadOrganizations = useCallback(async () => {
@@ -76,7 +78,9 @@ export default function Organizations() {
       setTotalPages(response.total_pages);
     } catch (err) {
       console.error("Failed to load organizations:", err);
-      setError("Unable to load organizations. Please check the backend server.");
+      setError(
+        "Unable to load organizations. Please check the backend server.",
+      );
       setOrganizations([]);
       setTotal(0);
       setTotalPages(0);
@@ -131,7 +135,7 @@ export default function Organizations() {
 
     if (!isValidSlug(trimmedSlug)) {
       setFormError(
-        "Use lowercase letters, numbers, and single hyphens in the slug."
+        "Use lowercase letters, numbers, and single hyphens in the slug.",
       );
       return;
     }
@@ -156,7 +160,7 @@ export default function Organizations() {
     } catch (err) {
       console.error("Failed to create organization:", err);
       setFormError(
-        "Unable to create organization. The name or slug may already exist."
+        "Unable to create organization. The name or slug may already exist.",
       );
     } finally {
       setSaving(false);
@@ -209,7 +213,7 @@ export default function Organizations() {
 
     if (!isValidSlug(trimmedSlug)) {
       setEditError(
-        "Use lowercase letters, numbers, and single hyphens in the slug."
+        "Use lowercase letters, numbers, and single hyphens in the slug.",
       );
       return;
     }
@@ -232,10 +236,59 @@ export default function Organizations() {
     } catch (err) {
       console.error("Failed to update organization:", err);
       setEditError(
-        "Unable to update organization. The name or slug may already exist."
+        "Unable to update organization. The name or slug may already exist.",
       );
     } finally {
       setEditSaving(false);
+    }
+  }
+
+  // Open delete confirmation modal
+  function openDeleteModal(organization: Organization) {
+    setDeletingOrganization(organization);
+    setDeleteError("");
+    setSuccess("");
+  }
+
+  function closeDeleteModal() {
+    if (deleting) return;
+    setDeletingOrganization(null);
+    setDeleteError("");
+  }
+
+  // DELETE organization
+  async function handleDeleteOrganization() {
+    if (!deletingOrganization) return;
+
+    setDeleting(true);
+    setDeleteError("");
+    setError("");
+    setSuccess("");
+
+    try {
+      await deleteOrganization(deletingOrganization.id);
+
+      const deletedName = deletingOrganization.name;
+      setDeletingOrganization(null);
+      setSuccess(`Organization "${deletedName}" deleted successfully.`);
+
+      // If the last row on a page is deleted, go back one page.
+      if (organizations.length === 1 && currentPage > 1) {
+        setCurrentPage((page) => page - 1);
+      } else {
+        setRefreshKey((previous) => previous + 1);
+      }
+    } catch (err: unknown) {
+      console.error("Failed to delete organization:", err);
+      const errorMessage =
+        err instanceof Error ? err.message : "Unknown error";
+
+      setDeleteError(
+        errorMessage ||
+          "Unable to delete this organization. It may have related records.",
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -247,9 +300,7 @@ export default function Organizations() {
       {/* Page heading */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            Organizations
-          </h1>
+          <h1 className="text-2xl font-bold text-slate-900">Organizations</h1>
           <p className="mt-2 text-sm text-slate-500">
             Manage organizations registered in DataPulse Enterprise.
           </p>
@@ -285,10 +336,7 @@ export default function Organizations() {
           className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4"
         >
           <p className="text-sm text-red-700">{error}</p>
-          <Button
-            className="mt-3"
-            onClick={() => void loadOrganizations()}
-          >
+          <Button className="mt-3" onClick={() => void loadOrganizations()}>
             Try Again
           </Button>
         </div>
@@ -300,9 +348,7 @@ export default function Organizations() {
           <p className="text-sm font-medium text-slate-500">
             Total Organizations
           </p>
-          <p className="mt-2 text-3xl font-bold text-blue-600">
-            {total}
-          </p>
+          <p className="mt-2 text-3xl font-bold text-blue-600">{total}</p>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -330,32 +376,9 @@ export default function Organizations() {
             type="search"
             value={search}
             onChange={(event) => handleSearchChange(event.target.value)}
-            placeholder="Search by name, slug or ID..."
+            placeholder="Search by name or slug..."
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <label
-            htmlFor="organization-page-size"
-            className="whitespace-nowrap text-sm text-slate-600"
-          >
-            Rows per page
-          </label>
-
-          <select
-            id="organization-page-size"
-            value={pageSize}
-            onChange={(event) =>
-              handlePageSizeChange(Number(event.target.value))
-            }
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-          >
-            <option value={5}>5</option>
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
-          </select>
         </div>
       </div>
 
@@ -390,16 +413,10 @@ export default function Organizations() {
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
-                  <th className="px-6 py-4 font-medium">
-                    Organization ID
-                  </th>
-                  <th className="px-6 py-4 font-medium">
-                    Organization Name
-                  </th>
+                  <th className="px-6 py-4 font-medium">Organization ID</th>
+                  <th className="px-6 py-4 font-medium">Organization Name</th>
                   <th className="px-6 py-4 font-medium">Slug</th>
-                  <th className="px-6 py-4 text-center font-medium">
-                    Actions
-                  </th>
+                  <th className="px-6 py-4 text-center font-medium">Actions</th>
                 </tr>
               </thead>
 
@@ -423,20 +440,77 @@ export default function Organizations() {
                       </span>
                     </td>
 
-                    <td className="px-6 py-4">
-                      <div className="flex flex-wrap items-center justify-center gap-2">
-                        <Button
-                          variant="secondary"
+                    <td className="px-5 py-4 text-center">
+                      <div className="inline-flex items-center justify-center gap-2">
+                        <button
+                          type="button"
                           onClick={() => setViewOrganization(organization)}
+                          title="View validation rule"
+                          className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300"
                         >
-                          View
-                        </Button>
-
-                        <Button
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => openEditModal(organization)}
+                          title="Edit validation rule"
+                          className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
                         >
-                          Edit
-                        </Button>
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openDeleteModal(organization)}
+                          title="Delete organization"
+                          aria-label={`Delete organization ${organization.name}`}
+                          className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4h8v2" />
+                            <path d="m19 6-1 14H6L5 6" />
+                            <path d="M10 11v5M14 11v5" />
+                          </svg>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -452,20 +526,39 @@ export default function Organizations() {
               <span className="font-medium text-slate-700">
                 {startRecord}–{endRecord}
               </span>{" "}
-              of{" "}
-              <span className="font-medium text-slate-700">
-                {total}
-              </span>{" "}
+              of <span className="font-medium text-slate-700">{total}</span>{" "}
               organizations
             </p>
 
             <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <div className="flex items-center gap-3">
+                <label
+                  htmlFor="organization-page-size"
+                  className="whitespace-nowrap text-sm text-slate-600"
+                >
+                  Rows per page
+                </label>
+
+                <select
+                  id="organization-page-size"
+                  value={pageSize}
+                  onChange={(event) =>
+                    handlePageSizeChange(Number(event.target.value))
+                  }
+                  className="rounded-lg border border-slate-300 pr-4 pl-1 py-1.5 text-sm outline-none focus:border-blue-500"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
               <Button
                 variant="secondary"
                 disabled={currentPage <= 1 || loading}
-                onClick={() =>
-                  setCurrentPage((page) => Math.max(1, page - 1))
-                }
+                size="sm"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                className="font-semibold"
               >
                 Previous
               </Button>
@@ -477,15 +570,13 @@ export default function Organizations() {
               <Button
                 variant="secondary"
                 disabled={
-                  currentPage >= totalPages ||
-                  totalPages === 0 ||
-                  loading
+                  currentPage >= totalPages || totalPages === 0 || loading
                 }
+                size="sm"
                 onClick={() =>
-                  setCurrentPage((page) =>
-                    Math.min(totalPages, page + 1)
-                  )
+                  setCurrentPage((page) => Math.min(totalPages, page + 1))
                 }
+                className="font-semibold"
               >
                 Next
               </Button>
@@ -594,11 +685,7 @@ export default function Organizations() {
               Cancel
             </Button>
 
-            <Button
-              type="submit"
-              loading={editSaving}
-              disabled={editSaving}
-            >
+            <Button type="submit" loading={editSaving} disabled={editSaving}>
               {editSaving ? "Updating..." : "Update Organization"}
             </Button>
           </div>
@@ -637,11 +724,60 @@ export default function Organizations() {
             </div>
 
             <div className="flex justify-end border-t border-slate-100 pt-4">
+              <Button type="button" onClick={() => setViewOrganization(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Delete Organization Confirmation Modal */}
+      <Modal
+        isOpen={deletingOrganization !== null}
+        onClose={closeDeleteModal}
+        title="Delete Organization"
+        description="Confirm whether you want to permanently delete this organization."
+        size="md"
+      >
+        {deletingOrganization && (
+          <div className="space-y-5">
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+              <p className="text-sm text-red-800">
+                Are you sure you want to delete{" "}
+                <span className="font-semibold">
+                  {deletingOrganization.name}
+                </span>
+                ?
+              </p>
+              <p className="mt-2 text-sm text-red-700">
+                This action cannot be undone. If the organization has related
+                records, the backend may reject the deletion.
+              </p>
+            </div>
+
+            {deleteError && (
+              <p role="alert" className="text-sm text-red-600">
+                {deleteError}
+              </p>
+            )}
+
+            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
               <Button
                 type="button"
-                onClick={() => setViewOrganization(null)}
+                variant="secondary"
+                onClick={closeDeleteModal}
+                disabled={deleting}
               >
-                Close
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleDeleteOrganization()}
+                loading={deleting}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete Organization"}
               </Button>
             </div>
           </div>

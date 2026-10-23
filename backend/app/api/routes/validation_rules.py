@@ -1,9 +1,9 @@
 from math import ceil
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
@@ -72,7 +72,6 @@ def validate_rule_payload(payload: dict[str, Any], partial: bool = False) -> dic
     fields = ("dataset_id", "name", "rule_type", "description", "configuration", "is_active")
     for field in fields:
         if field not in payload:
-            # Missing optional create fields receive defaults below; missing patch fields stay untouched.
             continue
 
         value = payload.get(field)
@@ -212,3 +211,43 @@ def update_validation_rule(
             status_code=400,
             detail="Could not update validation rule. Check the input values.",
         )
+
+
+# DELETE validation rule
+@router.delete("/{rule_id}", status_code=204)
+def delete_validation_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+):
+    rule = (
+        db.query(ValidationRule)
+        .filter(ValidationRule.id == rule_id)
+        .first()
+    )
+
+    if rule is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Validation rule not found",
+        )
+
+    try:
+        db.delete(rule)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Validation rule cannot be deleted because related records "
+                "or a database constraint prevents deletion."
+            ),
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="A database error occurred while deleting the validation rule.",
+        )
+
+    return Response(status_code=204)

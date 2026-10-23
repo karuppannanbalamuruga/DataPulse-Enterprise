@@ -14,6 +14,7 @@ import {
   getValidationRules,
   createValidationRule,
   updateValidationRule,
+  deleteValidationRule,
 } from "../services/api";
 
 import type { Dataset } from "../types/dataset";
@@ -43,6 +44,7 @@ export default function ValidationRules() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [datasetsLoading, setDatasetsLoading] = useState(true);
 
   const [pageError, setPageError] = useState("");
@@ -69,6 +71,10 @@ export default function ValidationRules() {
 
   // View modal state
   const [viewingRule, setViewingRule] = useState<ValidationRule | null>(null);
+
+  // Delete confirmation modal state
+  const [deletingRule, setDeletingRule] = useState<ValidationRule | null>(null);
+  const [deleteError, setDeleteError] = useState("");
 
   // Edit modal state
   const [editingRule, setEditingRule] = useState<ValidationRule | null>(null);
@@ -269,6 +275,64 @@ export default function ValidationRules() {
     }
   }
 
+  // Open delete confirmation modal
+  function openDeleteModal(rule: ValidationRule) {
+    setDeletingRule(rule);
+    setDeleteError("");
+  }
+
+  function closeDeleteModal() {
+    if (deleting) return;
+    setDeletingRule(null);
+    setDeleteError("");
+  }
+
+  // Delete validation rule through API
+  async function handleDeleteRule() {
+    if (!deletingRule) return;
+
+    try {
+      setDeleting(true);
+      setDeleteError("");
+
+      await deleteValidationRule(deletingRule.id);
+
+      const deletedName = deletingRule.name;
+      setDeletingRule(null);
+      showToast(`Validation rule "${deletedName}" deleted successfully.`, "success");
+
+      // If the last row on this page was deleted, go back one page.
+      const nextTotal = Math.max(0, totalRules - 1);
+      const nextTotalPages = nextTotal === 0 ? 0 : Math.ceil(nextTotal / pageSize);
+      const targetPage =
+        currentPage > nextTotalPages && nextTotalPages > 0
+          ? nextTotalPages
+          : nextTotalPages === 0
+            ? 1
+            : currentPage;
+
+      if (targetPage !== currentPage) {
+        setCurrentPage(targetPage);
+      } else {
+        await loadRules();
+      }
+    } catch (error) {
+      console.error("Failed to delete validation rule:", error);
+      const message =
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error &&
+        typeof (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail === "string"
+          ? (error as { response: { data: { detail: string } } }).response.data.detail
+          : error instanceof Error
+            ? error.message
+            : "Failed to delete validation rule. Please try again.";
+      setDeleteError(message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   // Find dataset name for a rule
   function getDatasetName(id: number) {
     return (
@@ -432,21 +496,35 @@ export default function ValidationRules() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Rule Name</p>
-                <p className="mt-1 break-words text-sm font-semibold text-slate-900">{viewingRule.name}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Dataset</p>
-                <p className="mt-1 text-sm text-slate-800">{getDatasetName(viewingRule.dataset_id)}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Rule Type</p>
-                <p className="mt-1 text-sm text-slate-800">
-                  {RULE_TYPES.find((type) => type.value === viewingRule.rule_type)?.label ?? viewingRule.rule_type}
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Rule Name
+                </p>
+                <p className="mt-1 break-words text-sm font-semibold text-slate-900">
+                  {viewingRule.name}
                 </p>
               </div>
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Status</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Dataset
+                </p>
+                <p className="mt-1 text-sm text-slate-800">
+                  {getDatasetName(viewingRule.dataset_id)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Rule Type
+                </p>
+                <p className="mt-1 text-sm text-slate-800">
+                  {RULE_TYPES.find(
+                    (type) => type.value === viewingRule.rule_type,
+                  )?.label ?? viewingRule.rule_type}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Status
+                </p>
                 <div className="mt-1">
                   <Badge status={viewingRule.is_active ? "success" : "neutral"}>
                     {viewingRule.is_active ? "Active" : "Inactive"}
@@ -454,20 +532,26 @@ export default function ValidationRules() {
                 </div>
               </div>
               <div className="sm:col-span-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Description</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Description
+                </p>
                 <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-800">
                   {viewingRule.description || "No description provided."}
                 </p>
               </div>
               <div className="sm:col-span-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Configuration</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Configuration
+                </p>
                 <pre className="mt-1 overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
                   {JSON.stringify(viewingRule.configuration ?? {}, null, 2)}
                 </pre>
               </div>
               {viewingRule.created_at && (
                 <div className="sm:col-span-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Created At</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Created At
+                  </p>
                   <p className="mt-1 text-sm text-slate-800">
                     {new Date(viewingRule.created_at).toLocaleString()}
                   </p>
@@ -475,7 +559,11 @@ export default function ValidationRules() {
               )}
             </div>
             <div className="flex justify-end border-t border-slate-100 pt-4">
-              <Button type="button" variant="secondary" onClick={closeViewModal}>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={closeViewModal}
+              >
                 Close
               </Button>
             </div>
@@ -663,29 +751,6 @@ export default function ValidationRules() {
             ))}
           </select>
         </div>
-
-        <div>
-          <label
-            htmlFor="validation-page-size"
-            className="mb-1.5 block text-sm font-medium text-slate-700"
-          >
-            Rows per page
-          </label>
-          <select
-            id="validation-page-size"
-            value={pageSize}
-            onChange={(event) => {
-              setPageSize(Number(event.target.value));
-              setCurrentPage(1);
-            }}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          >
-            <option value={5}>5</option>
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
-          </select>
-        </div>
       </div>
 
       {/* Loading / Error / Empty / Table */}
@@ -803,6 +868,31 @@ export default function ValidationRules() {
                           <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
                         </svg>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => openDeleteModal(rule)}
+                        title="Delete validation rule"
+                        aria-label={`Delete ${rule.name}`}
+                        className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 6h18" />
+                          <path d="M8 6V4h8v2" />
+                          <path d="m19 6-1 14H6L5 6" />
+                          <path d="M10 11v5M14 11v5" />
+                        </svg>
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -819,9 +909,32 @@ export default function ValidationRules() {
             {Math.min(currentPage * pageSize, totalRules)} of {totalRules} rules
           </p>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <div className="flex items-center gap-3">
+              <label
+                htmlFor="validation-page-size"
+                className="whitespace-nowrap text-sm text-slate-600"
+              >
+                Rows per page
+              </label>
+              <select
+                id="validation-page-size"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setCurrentPage(1);
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white pr-4 pl-1 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
             <Button
               variant="secondary"
+              size="sm"
               disabled={currentPage <= 1 || loading}
               onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
             >
@@ -832,9 +945,14 @@ export default function ValidationRules() {
             </span>
             <Button
               variant="secondary"
-              disabled={currentPage >= totalPages || loading || totalPages === 0}
+              size="sm"
+              disabled={
+                currentPage >= totalPages || loading || totalPages === 0
+              }
               onClick={() =>
-                setCurrentPage((page) => Math.min(Math.max(totalPages, 1), page + 1))
+                setCurrentPage((page) =>
+                  Math.min(Math.max(totalPages, 1), page + 1),
+                )
               }
             >
               Next
@@ -842,6 +960,54 @@ export default function ValidationRules() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={deletingRule !== null}
+        onClose={closeDeleteModal}
+        title="Delete Validation Rule"
+        description="Confirm whether you want to permanently delete this validation rule."
+        size="lg"
+      >
+        {deletingRule && (
+          <div className="space-y-5">
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+              <p className="text-sm text-red-800">
+                Are you sure you want to delete{" "}
+                <span className="font-semibold">{deletingRule.name}</span>?
+              </p>
+              <p className="mt-2 text-sm text-red-700">
+                This action cannot be undone.
+              </p>
+            </div>
+
+            {deleteError && (
+              <p role="alert" className="text-sm text-red-600">
+                {deleteError}
+              </p>
+            )}
+
+            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={closeDeleteModal}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleDeleteRule()}
+                loading={deleting}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete Rule"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </PageContainer>
   );
 }

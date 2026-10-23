@@ -13,6 +13,7 @@ import {
   createDataset,
   updateDataset,
   getOrganizations,
+  deleteDataset,
 } from "../services/api";
 
 import type {
@@ -56,6 +57,8 @@ export default function Datasets() {
   const [loading, setLoading] = useState(true);
   const [organizationsLoading, setOrganizationsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [datasetToDelete, setDatasetToDelete] = useState<Dataset | null>(null);
 
   const [pageError, setPageError] = useState("");
   const [formError, setFormError] = useState("");
@@ -65,8 +68,8 @@ export default function Datasets() {
   const [statusFilter, setStatusFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
 
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
@@ -96,7 +99,7 @@ export default function Datasets() {
         search: search.trim() || undefined,
         status: statusFilter || undefined,
         source_type: sourceFilter || undefined,
-        page,
+        page: currentPage,
         page_size: pageSize,
       };
 
@@ -111,7 +114,7 @@ export default function Datasets() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, sourceFilter, page, pageSize]);
+  }, [search, statusFilter, sourceFilter, currentPage, pageSize]);
 
   const loadOrganizations = useCallback(async () => {
     try {
@@ -270,8 +273,8 @@ export default function Datasets() {
 
       closeModal();
 
-      if (page !== 1) {
-        setPage(1);
+      if (currentPage !== 1) {
+        setCurrentPage(1);
       } else {
         await loadDatasets();
       }
@@ -289,7 +292,7 @@ export default function Datasets() {
     type: "search" | "status" | "source",
     value: string,
   ) => {
-    setPage(1);
+    setCurrentPage(1);
 
     if (type === "search") {
       setSearch(value);
@@ -299,6 +302,12 @@ export default function Datasets() {
       setSourceFilter(value);
     }
   };
+
+  // Page size handler
+  function handlePageSizeChange(value: number) {
+    setPageSize(value);
+    setCurrentPage(1);
+  }
 
   const formatDate = (value: string | null | undefined) => {
     if (!value) return "—";
@@ -322,6 +331,42 @@ export default function Datasets() {
         return "bg-yellow-100 text-yellow-800";
     }
   };
+
+  function handleDelete(dataset: Dataset) {
+    setDatasetToDelete(dataset);
+  }
+
+  async function confirmDelete() {
+    if (!datasetToDelete) return;
+
+    const dataset = datasetToDelete;
+
+    try {
+      setDeletingId(dataset.id);
+      setPageError("");
+      await deleteDataset(dataset.id);
+      setDatasetToDelete(null);
+
+      setToast({
+        message: `Dataset "${dataset.name}" deleted successfully.`,
+        type: "success",
+      });
+
+      if (datasets.length === 1 && currentPage > 1) {
+        setCurrentPage((page) => page - 1);
+      } else {
+        await loadDatasets();
+      }
+    } catch (error) {
+      console.error("Failed to delete dataset:", error);
+      setToast({
+        message: "Unable to delete the dataset. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <div className="p-5">
@@ -525,23 +570,81 @@ export default function Datasets() {
                         <td className="whitespace-nowrap px-5 py-4 text-gray-600">
                           {formatDate(dataset.updated_at)}
                         </td>
-
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
+                        <td className="px-5 py-4 text-center">
+                          <div className="inline-flex items-center justify-center gap-2">
                             <button
                               type="button"
                               onClick={() => void openDetails(dataset)}
-                              className="font-medium text-blue-600 hover:text-blue-800"
+                              title="View validation rule"
+                              className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300"
                             >
-                              View
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
                             </button>
-
                             <button
                               type="button"
                               onClick={() => void openEditModal(dataset)}
-                              className="font-medium text-indigo-600 hover:text-indigo-800"
+                              title="Edit validation rule"
+                              className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
                             >
-                              Edit
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDelete(dataset)}
+                              disabled={deletingId === dataset.id}
+                              title="Delete dataset"
+                              aria-label={`Delete dataset ${dataset.name}`}
+                              className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {deletingId === dataset.id ? (
+                                <span className="px-0.5 text-xs">...</span>
+                              ) : (
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  width="18"
+                                  height="18"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M3 6h18" />
+                                  <path d="M8 6V4h8v2" />
+                                  <path d="m19 6-1 14H6L5 6" />
+                                  <path d="M10 11v5M14 11v5" />
+                                </svg>
+                              )}
                             </button>
                           </div>
                         </td>
@@ -559,23 +662,51 @@ export default function Datasets() {
           <p className="text-sm text-gray-600">
             Total datasets: <strong>{total}</strong>
             {" · "}
-            Page <strong>{page}</strong> of{" "}
+            Page <strong>{currentPage}</strong> of{" "}
             <strong>{Math.max(totalPages, 1)}</strong>
           </p>
 
-          <div className="flex gap-2">
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <div className="flex items-center gap-3">
+              <label
+                htmlFor="organization-page-size"
+                className="whitespace-nowrap text-sm text-slate-600"
+              >
+                Rows per page
+              </label>
+
+              <select
+                id="organization-page-size"
+                value={pageSize}
+                onChange={(event) =>
+                  handlePageSizeChange(Number(event.target.value))
+                }
+                className="rounded-lg border border-slate-300 pr-4 pl-1 py-1.5 text-sm outline-none focus:border-blue-500"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
             <Button
               variant="secondary"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((current) => current - 1)}
+              size="sm"
+              disabled={currentPage <= 1 || loading}
+              onClick={() => setCurrentPage((current) => current - 1)}
             >
               Previous
             </Button>
-
+            <span className="px-2 text-sm text-slate-600">
+              Page {currentPage} of {Math.max(totalPages, 1)}
+            </span>
             <Button
               variant="secondary"
-              disabled={page >= totalPages || loading || totalPages === 0}
-              onClick={() => setPage((current) => current + 1)}
+              size="sm"
+              disabled={
+                currentPage >= totalPages || loading || totalPages === 0
+              }
+              onClick={() => setCurrentPage((current) => current + 1)}
             >
               Next
             </Button>
@@ -778,6 +909,67 @@ export default function Datasets() {
               </Button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* Delete confirmation modal */}
+      {datasetToDelete && (
+        <Modal
+          isOpen={Boolean(datasetToDelete)}
+          onClose={() => {
+            if (deletingId === null) setDatasetToDelete(null);
+          }}
+          title="Delete Dataset?"
+        >
+          <div className="space-y-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="m19 6-1 14H6L5 6" />
+                  <path d="M10 11v5M14 11v5" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-semibold text-gray-900">
+                  Are you sure you want to delete “{datasetToDelete.name}”?
+                </p>
+                <p className="mt-2 text-sm leading-6 text-gray-600">
+                  This action cannot be undone. Related processing runs and validation rules may also be deleted.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setDatasetToDelete(null)}
+                disabled={deletingId !== null}
+              >
+                Cancel
+              </Button>
+              <button
+                type="button"
+                onClick={() => void confirmDelete()}
+                disabled={deletingId !== null}
+                className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deletingId === datasetToDelete.id ? "Deleting..." : "Delete Dataset"}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
 
