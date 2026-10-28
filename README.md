@@ -255,3 +255,70 @@ npm run build
 ## License
 
 Add the appropriate license information before distributing this project.
+
+### Validation Rules Management
+
+The Validation Rules module allows users to create, retrieve, update, enable, disable, search, filter, and delete data-quality validation rules associated with registered datasets.
+
+#### Supported Validation Types
+
+| Validation Type | Purpose | Configuration |
+|---|---|---|
+| `required_field` | Detect missing or null values | `{}` |
+| `unique_value` | Detect duplicate values | `{}` |
+| `data_type` | Validate the expected data type | `{"expected_type": "integer"}` |
+| `numeric_range` | Validate numeric minimum and maximum values | `{"min": 18, "max": 100}` |
+| `string_length` | Validate minimum and maximum string lengths | `{"min_length": 2, "max_length": 100}` |
+| `format_validation` | Validate supported formats | `{"format": "email"}` |
+
+#### Validation Rules API
+
+Base path: `/api/v1/validation-rules`
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/api/v1/validation-rules` | Create a validation rule |
+| GET | `/api/v1/validation-rules` | List rules with supported search, filters, and pagination |
+| GET | `/api/v1/validation-rules/{rule_id}` | Retrieve a specific rule |
+| PATCH | `/api/v1/validation-rules/{rule_id}` | Update a rule |
+| PATCH | `/api/v1/validation-rules/{rule_id}/status` | Enable or disable a rule |
+| DELETE | `/api/v1/validation-rules/{rule_id}` | Delete a rule |
+
+Use the interactive API documentation at `/docs` to inspect the actual request schemas, query parameters, response models, and error responses.
+
+#### Example: Create a Validation Rule
+
+`POST /api/v1/validation-rules`
+
+Example payload for a numeric range rule:
+
+```json
+{
+  "dataset_id": 1,
+  "name": "Age Range Validation",
+  "column_name": "age",
+  "rule_type": "numeric_range",
+  "configuration": {
+    "min": 18,
+    "max": 100
+  },
+  "is_active": true
+}
+```
+
+Use a dataset ID that exists in your database. Confirm the request field names against the actual Pydantic schema before using this example.
+
+#### Search, Filtering, and Pagination
+
+The list endpoint supports the query parameters implemented by the backend, such as:
+
+- `page` and `page_size` for pagination
+- `search` for searching rule names
+- `dataset_id` for filtering by dataset
+
+Validation-type and status filters should be documented using their exact implemented query parameter names.
+
+#### Scope
+
+This module manages validation rule definitions and their configurations. Executing rules against dataset records and generating data-quality scores are outside the scope of this task.
+
