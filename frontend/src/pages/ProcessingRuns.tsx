@@ -354,12 +354,7 @@ export default function ProcessingRuns() {
   return (
     <PageContainer>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Processing Runs</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Monitor and manage dataset processing history.
-          </p>
-        </div>
+        <div></div>
 
         <Button onClick={() => void openCreateModal()} disabled={creating}>
           Create Processing Run
@@ -466,7 +461,7 @@ export default function ProcessingRuns() {
                         <button
                           type="button"
                           onClick={() => void handleViewRun(run)}
-                          title="View validation rule"
+                          title="View Processing Runs"
                           className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300"
                         >
                           <svg
@@ -488,7 +483,7 @@ export default function ProcessingRuns() {
                         <button
                           type="button"
                           onClick={() => handleEditRun(run)}
-                          title="Edit validation rule"
+                          title="Edit Processing Runs"
                           className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
                         >
                           <svg

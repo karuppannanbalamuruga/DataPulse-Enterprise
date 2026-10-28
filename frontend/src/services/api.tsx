@@ -123,6 +123,19 @@ export const updateValidationRule = async (
   return response.data;
 };
 
+
+export const updateValidationRuleStatus = async (
+  id: number,
+  is_active: boolean,
+): Promise<ValidationRule> => {
+  const response = await api.patch<ValidationRule>(
+    `/api/v1/validation-rules/${id}/status`,
+    { is_active },
+  );
+
+  return response.data;
+};
+
 // Delete Validation Rule
 export const deleteValidationRule = async (
   id: number,

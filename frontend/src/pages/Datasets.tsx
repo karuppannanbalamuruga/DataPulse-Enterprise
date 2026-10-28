@@ -374,13 +374,6 @@ export default function Datasets() {
         {/* Page heading */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Dataset Management
-            </h1>
-
-            <p className="mt-1 text-sm text-gray-500">
-              Create, search, filter, and manage your datasets.
-            </p>
           </div>
 
           <Button onClick={openCreateModal}>+ Create Dataset</Button>
@@ -440,7 +433,7 @@ export default function Datasets() {
               value={search}
               onChange={(event) => updateFilter("search", event.target.value)}
               placeholder="Enter dataset name..."
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
           </div>
 

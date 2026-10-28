@@ -14,6 +14,7 @@ import {
   getValidationRules,
   createValidationRule,
   updateValidationRule,
+  updateValidationRuleStatus,
   deleteValidationRule,
 } from "../services/api";
 
@@ -24,16 +25,79 @@ import type {
 } from "../types/validationRule";
 
 const RULE_TYPES = [
-  { value: "not_null", label: "Not Null" },
-  { value: "unique", label: "Unique" },
-  { value: "email", label: "Email Format" },
-  { value: "range", label: "Range" },
-  { value: "regex", label: "Regular Expression" },
+  { value: "required_field", label: "Required Field" },
+  { value: "unique_value", label: "Unique Value" },
+  { value: "data_type", label: "Data Type" },
+  { value: "numeric_range", label: "Numeric Range" },
+  { value: "string_length", label: "String Length" },
+  { value: "format_validation", label: "Format Validation" },
 ];
+
+const inputClass =
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+
+const labelClass = "mb-1.5 block text-sm font-medium text-slate-700";
+
+type Configuration = Record<string, unknown>;
+
+function getConfiguration(
+  ruleType: string,
+  expectedType: string,
+  minValue: string,
+  maxValue: string,
+  minLength: string,
+  maxLength: string,
+  selectedFormat: string,
+): Configuration {
+  switch (ruleType) {
+    case "data_type":
+      return { expected_type: expectedType };
+
+    case "numeric_range":
+      return {
+        min: Number(minValue),
+        max: Number(maxValue),
+      };
+
+    case "string_length":
+      return {
+        min_length: Number(minLength),
+        max_length: Number(maxLength),
+      };
+
+    case "format_validation":
+      return { format: selectedFormat };
+
+    default:
+      return {};
+  }
+}
+
+function getErrorMessage(error: unknown): string {
+  const err = error as {
+    response?: {
+      data?: {
+        detail?: string | { msg?: string }[];
+      };
+    };
+    message?: string;
+  };
+
+  const detail = err?.response?.data?.detail;
+
+  if (typeof detail === "string") return detail;
+
+  if (Array.isArray(detail)) {
+    return detail.map((item) => item.msg ?? "Invalid input").join(", ");
+  }
+
+  return err?.message ?? "Something went wrong. Please try again.";
+}
 
 export default function ValidationRules() {
   const [rules, setRules] = useState<ValidationRule[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDatasetFilter, setSelectedDatasetFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -42,55 +106,62 @@ export default function ValidationRules() {
   const [totalPages, setTotalPages] = useState(0);
 
   const [loading, setLoading] = useState(true);
+  const [datasetsLoading, setDatasetsLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [updating, setUpdating] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [datasetsLoading, setDatasetsLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
 
   const [pageError, setPageError] = useState("");
   const [formError, setFormError] = useState("");
   const [editError, setEditError] = useState("");
+
   const [toastMessage, setToastMessage] = useState("");
   const [toastType, setToastType] = useState<ToastType>("success");
 
-  const showToast = (nextMessage: string, type: ToastType = "success") => {
-    setToastMessage(nextMessage);
-    setToastType(type);
-  };
-
-  const closeToast = () => {
-    setToastMessage("");
-  };
-
-  // Create modal state
+  // Create form state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [datasetId, setDatasetId] = useState("");
   const [name, setName] = useState("");
-  const [ruleType, setRuleType] = useState("not_null");
+  const [ruleType, setRuleType] = useState("required_field");
   const [description, setDescription] = useState("");
 
-  // View modal state
+  const [expectedType, setExpectedType] = useState("string");
+  const [minValue, setMinValue] = useState("0");
+  const [maxValue, setMaxValue] = useState("100");
+  const [minLength, setMinLength] = useState("1");
+  const [maxLength, setMaxLength] = useState("255");
+  const [selectedFormat, setSelectedFormat] = useState("email");
+
+  // View state
   const [viewingRule, setViewingRule] = useState<ValidationRule | null>(null);
 
-  // Delete confirmation modal state
-  const [deletingRule, setDeletingRule] = useState<ValidationRule | null>(null);
-  const [deleteError, setDeleteError] = useState("");
-
-  // Edit modal state
+  // Edit form state
   const [editingRule, setEditingRule] = useState<ValidationRule | null>(null);
   const [editDatasetId, setEditDatasetId] = useState("");
   const [editName, setEditName] = useState("");
-  const [editRuleType, setEditRuleType] = useState("not_null");
+  const [editRuleType, setEditRuleType] = useState("required_field");
   const [editDescription, setEditDescription] = useState("");
   const [editIsActive, setEditIsActive] = useState(true);
 
-  // Load validation rules from the backend with search, filter and pagination.
+  const [editExpectedType, setEditExpectedType] = useState("string");
+  const [editMinValue, setEditMinValue] = useState("0");
+  const [editMaxValue, setEditMaxValue] = useState("100");
+  const [editMinLength, setEditMinLength] = useState("1");
+  const [editMaxLength, setEditMaxLength] = useState("255");
+  const [editSelectedFormat, setEditSelectedFormat] = useState("email");
+
+  const showToast = (message: string, type: ToastType = "success") => {
+    setToastMessage(message);
+    setToastType(type);
+  };
+
   const loadRules = useCallback(async () => {
     try {
       setLoading(true);
       setPageError("");
 
-      const data = await getValidationRules({
+      const response = await getValidationRules({
         page: currentPage,
         page_size: pageSize,
         search: searchTerm.trim() || undefined,
@@ -100,29 +171,25 @@ export default function ValidationRules() {
             : Number(selectedDatasetFilter),
       });
 
-      setRules(data.items);
-      setTotalRules(data.total);
-      setTotalPages(data.total_pages);
+      setRules(response.items);
+      setTotalRules(response.total);
+      setTotalPages(response.total_pages);
     } catch (error) {
       console.error("Failed to load validation rules:", error);
-      setPageError(
-        "Unable to load validation rules. Please check the backend/API response.",
-      );
+      setPageError(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
   }, [currentPage, pageSize, searchTerm, selectedDatasetFilter]);
 
-  // Load available datasets
   const loadDatasets = useCallback(async () => {
     try {
       setDatasetsLoading(true);
-
-      const data = await getDatasets();
-      setDatasets(data.items);
+      const response = await getDatasets();
+      setDatasets(response.items);
     } catch (error) {
       console.error("Failed to load datasets:", error);
-      setFormError("Unable to load datasets. Please try again.");
+      showToast(getErrorMessage(error), "error");
     } finally {
       setDatasetsLoading(false);
     }
@@ -130,31 +197,89 @@ export default function ValidationRules() {
 
   useEffect(() => {
     void loadRules();
-    void loadDatasets();
-  }, [loadRules, loadDatasets]);
+  }, [loadRules]);
 
-  // Open create modal
-  function openModal() {
-    setFormError("");
+  useEffect(() => {
+    void loadDatasets();
+  }, [loadDatasets]);
+
+  function getDatasetName(id: number) {
+    return (
+      datasets.find((dataset) => dataset.id === id)?.name ?? `Dataset #${id}`
+    );
+  }
+
+  function resetCreateForm() {
     setDatasetId("");
     setName("");
-    setRuleType("not_null");
+    setRuleType("required_field");
     setDescription("");
+    setExpectedType("string");
+    setMinValue("0");
+    setMaxValue("100");
+    setMinLength("1");
+    setMaxLength("255");
+    setSelectedFormat("email");
+    setFormError("");
+  }
+
+  function openCreateModal() {
+    resetCreateForm();
     setIsModalOpen(true);
   }
 
-  // Close create modal
-  function closeModal() {
+  function closeCreateModal() {
     if (saving) return;
-
     setIsModalOpen(false);
     setFormError("");
   }
 
-  // Create validation rule
+  function validateConfiguration(
+    type: string,
+    min: string,
+    max: string,
+    minimumLength: string,
+    maximumLength: string,
+  ): string | null {
+    if (type === "numeric_range") {
+      if (min.trim() === "" || max.trim() === "") {
+        return "Enter both minimum and maximum values.";
+      }
+
+      if (!Number.isFinite(Number(min)) || !Number.isFinite(Number(max))) {
+        return "Range values must be valid numbers.";
+      }
+
+      if (Number(min) > Number(max)) {
+        return "Minimum value cannot be greater than maximum value.";
+      }
+    }
+
+    if (type === "string_length") {
+      if (minimumLength.trim() === "" || maximumLength.trim() === "") {
+        return "Enter both minimum and maximum lengths.";
+      }
+
+      if (
+        !Number.isInteger(Number(minimumLength)) ||
+        !Number.isInteger(Number(maximumLength))
+      ) {
+        return "String lengths must be whole numbers.";
+      }
+
+      if (
+        Number(minimumLength) < 0 ||
+        Number(maximumLength) < Number(minimumLength)
+      ) {
+        return "Enter valid minimum and maximum lengths.";
+      }
+    }
+
+    return null;
+  }
+
   async function handleCreateRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setFormError("");
 
     if (!datasetId) {
@@ -167,70 +292,83 @@ export default function ValidationRules() {
       return;
     }
 
+    const validationError = validateConfiguration(
+      ruleType,
+      minValue,
+      maxValue,
+      minLength,
+      maxLength,
+    );
+
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
+
     const payload: CreateValidationRulePayload = {
       dataset_id: Number(datasetId),
       name: name.trim(),
       rule_type: ruleType,
-      description: description.trim(),
-      configuration: {},
+      description: description.trim() || null,
+      configuration: getConfiguration(
+        ruleType,
+        expectedType,
+        minValue,
+        maxValue,
+        minLength,
+        maxLength,
+        selectedFormat,
+      ),
       is_active: true,
     };
 
     try {
       setSaving(true);
-
       await createValidationRule(payload);
 
-      showToast("Validation rule created successfully!", "success");
       setIsModalOpen(false);
+      resetCreateForm();
 
-      setDatasetId("");
-      setName("");
-      setRuleType("not_null");
-      setDescription("");
+      showToast("Validation rule created successfully!");
+      setCurrentPage(1);
 
+      // Refresh the current list using the active filters.
       await loadRules();
     } catch (error) {
       console.error("Failed to create validation rule:", error);
-      setFormError(
-        "Failed to create validation rule. Please check the selected dataset and backend API.",
-      );
+      setFormError(getErrorMessage(error));
       showToast("Failed to create validation rule.", "error");
     } finally {
       setSaving(false);
     }
   }
 
-  // Open view modal with selected rule details
-  function openViewModal(rule: ValidationRule) {
-    setViewingRule(rule);
-  }
-
-  // Close view modal
-  function closeViewModal() {
-    setViewingRule(null);
-  }
-
-  // Open edit modal with selected rule values
   function openEditModal(rule: ValidationRule) {
+    const config = rule.configuration ?? {};
+
     setEditingRule(rule);
     setEditDatasetId(String(rule.dataset_id));
     setEditName(rule.name);
     setEditRuleType(rule.rule_type);
     setEditDescription(rule.description ?? "");
     setEditIsActive(rule.is_active);
+
+    setEditExpectedType(String(config.expected_type ?? "string"));
+    setEditMinValue(String(config.min ?? 0));
+    setEditMaxValue(String(config.max ?? 100));
+    setEditMinLength(String(config.min_length ?? 1));
+    setEditMaxLength(String(config.max_length ?? 255));
+    setEditSelectedFormat(String(config.format ?? "email"));
+
     setEditError("");
   }
 
-  // Close edit modal
   function closeEditModal() {
     if (updating) return;
-
     setEditingRule(null);
     setEditError("");
   }
 
-  // Update validation rule through API
   async function handleUpdateRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -238,13 +376,21 @@ export default function ValidationRules() {
 
     setEditError("");
 
-    if (!editDatasetId) {
-      setEditError("Please select a dataset.");
+    if (!editDatasetId || !editName.trim()) {
+      setEditError("Dataset and rule name are required.");
       return;
     }
 
-    if (!editName.trim()) {
-      setEditError("Please enter a rule name.");
+    const validationError = validateConfiguration(
+      editRuleType,
+      editMinValue,
+      editMaxValue,
+      editMinLength,
+      editMaxLength,
+    );
+
+    if (validationError) {
+      setEditError(validationError);
       return;
     }
 
@@ -255,88 +401,284 @@ export default function ValidationRules() {
         dataset_id: Number(editDatasetId),
         name: editName.trim(),
         rule_type: editRuleType,
-        description: editDescription.trim(),
-        configuration: editingRule.configuration ?? {},
+        description: editDescription.trim() || null,
+        configuration: getConfiguration(
+          editRuleType,
+          editExpectedType,
+          editMinValue,
+          editMaxValue,
+          editMinLength,
+          editMaxLength,
+          editSelectedFormat,
+        ),
         is_active: editIsActive,
       });
 
       setEditingRule(null);
-      showToast("Validation rule updated successfully!", "success");
-
+      showToast("Validation rule updated successfully!");
       await loadRules();
     } catch (error) {
       console.error("Failed to update validation rule:", error);
-      setEditError(
-        "Failed to update validation rule. Please check the backend API.",
-      );
+      setEditError(getErrorMessage(error));
       showToast("Failed to update validation rule.", "error");
     } finally {
       setUpdating(false);
     }
   }
 
-  // Open delete confirmation modal
-  function openDeleteModal(rule: ValidationRule) {
-    setDeletingRule(rule);
-    setDeleteError("");
+  async function handleToggleStatus(rule: ValidationRule) {
+    try {
+      setStatusUpdatingId(rule.id);
+
+      const updatedRule = await updateValidationRuleStatus(
+        rule.id,
+        !rule.is_active,
+      );
+
+      setRules((previousRules) =>
+        previousRules.map((item) => (item.id === rule.id ? updatedRule : item)),
+      );
+
+      if (viewingRule?.id === rule.id) {
+        setViewingRule(updatedRule);
+      }
+
+      showToast(
+        `Rule ${updatedRule.is_active ? "activated" : "deactivated"} successfully!`,
+      );
+    } catch (error) {
+      console.error("Failed to update rule status:", error);
+      showToast(getErrorMessage(error), "error");
+    } finally {
+      setStatusUpdatingId(null);
+    }
   }
 
-  function closeDeleteModal() {
-    if (deleting) return;
-    setDeletingRule(null);
-    setDeleteError("");
-  }
+  async function handleDeleteRule(rule: ValidationRule) {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${rule.name}"?`,
+    );
 
-  // Delete validation rule through API
-  async function handleDeleteRule() {
-    if (!deletingRule) return;
+    if (!confirmed) return;
 
     try {
-      setDeleting(true);
-      setDeleteError("");
+      setDeletingId(rule.id);
 
-      await deleteValidationRule(deletingRule.id);
+      await deleteValidationRule(rule.id);
 
-      const deletedName = deletingRule.name;
-      setDeletingRule(null);
-      showToast(`Validation rule "${deletedName}" deleted successfully.`, "success");
+      showToast("Validation rule deleted successfully!");
 
-      // If the last row on this page was deleted, go back one page.
-      const nextTotal = Math.max(0, totalRules - 1);
-      const nextTotalPages = nextTotal === 0 ? 0 : Math.ceil(nextTotal / pageSize);
-      const targetPage =
-        currentPage > nextTotalPages && nextTotalPages > 0
-          ? nextTotalPages
-          : nextTotalPages === 0
-            ? 1
-            : currentPage;
-
-      if (targetPage !== currentPage) {
-        setCurrentPage(targetPage);
+      if (rules.length === 1 && currentPage > 1) {
+        setCurrentPage((page) => page - 1);
       } else {
         await loadRules();
       }
     } catch (error) {
       console.error("Failed to delete validation rule:", error);
-      const message =
-        typeof error === "object" &&
-        error !== null &&
-        "response" in error &&
-        typeof (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail === "string"
-          ? (error as { response: { data: { detail: string } } }).response.data.detail
-          : error instanceof Error
-            ? error.message
-            : "Failed to delete validation rule. Please try again.";
-      setDeleteError(message);
+      showToast(getErrorMessage(error), "error");
     } finally {
-      setDeleting(false);
+      setDeletingId(null);
     }
   }
 
-  // Find dataset name for a rule
-  function getDatasetName(id: number) {
+  function renderConfigurationFields(isEdit = false) {
+    const type = isEdit ? editRuleType : ruleType;
+
+    const currentExpectedType = isEdit ? editExpectedType : expectedType;
+    const setCurrentExpectedType = isEdit
+      ? setEditExpectedType
+      : setExpectedType;
+
+    const currentMin = isEdit ? editMinValue : minValue;
+    const setCurrentMin = isEdit ? setEditMinValue : setMinValue;
+
+    const currentMax = isEdit ? editMaxValue : maxValue;
+    const setCurrentMax = isEdit ? setEditMaxValue : setMaxValue;
+
+    const currentMinLength = isEdit ? editMinLength : minLength;
+    const setCurrentMinLength = isEdit ? setEditMinLength : setMinLength;
+
+    const currentMaxLength = isEdit ? editMaxLength : maxLength;
+    const setCurrentMaxLength = isEdit ? setEditMaxLength : setMaxLength;
+
+    const currentFormat = isEdit ? editSelectedFormat : selectedFormat;
+    const setCurrentFormat = isEdit ? setEditSelectedFormat : setSelectedFormat;
+
+    if (type === "data_type") {
+      return (
+        <div>
+          <label
+            className={labelClass}
+            htmlFor={`${isEdit ? "edit-" : ""}expected-type`}
+          >
+            Expected Data Type
+          </label>
+          <select
+            id={`${isEdit ? "edit-" : ""}expected-type`}
+            className={inputClass}
+            value={currentExpectedType}
+            onChange={(event) => setCurrentExpectedType(event.target.value)}
+          >
+            <option value="string">String</option>
+            <option value="integer">Integer</option>
+            <option value="number">Number</option>
+            <option value="boolean">Boolean</option>
+            <option value="date">Date</option>
+          </select>
+        </div>
+      );
+    }
+
+    if (type === "numeric_range") {
+      return (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label
+              className={labelClass}
+              htmlFor={`${isEdit ? "edit-" : ""}min-value`}
+            >
+              Minimum Value
+            </label>
+            <input
+              id={`${isEdit ? "edit-" : ""}min-value`}
+              className={inputClass}
+              type="number"
+              value={currentMin}
+              onChange={(event) => setCurrentMin(event.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label
+              className={labelClass}
+              htmlFor={`${isEdit ? "edit-" : ""}max-value`}
+            >
+              Maximum Value
+            </label>
+            <input
+              id={`${isEdit ? "edit-" : ""}max-value`}
+              className={inputClass}
+              type="number"
+              value={currentMax}
+              onChange={(event) => setCurrentMax(event.target.value)}
+              required
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (type === "string_length") {
+      return (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label
+              className={labelClass}
+              htmlFor={`${isEdit ? "edit-" : ""}min-length`}
+            >
+              Minimum Length
+            </label>
+            <input
+              id={`${isEdit ? "edit-" : ""}min-length`}
+              className={inputClass}
+              type="number"
+              min={0}
+              step={1}
+              value={currentMinLength}
+              onChange={(event) => setCurrentMinLength(event.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label
+              className={labelClass}
+              htmlFor={`${isEdit ? "edit-" : ""}max-length`}
+            >
+              Maximum Length
+            </label>
+            <input
+              id={`${isEdit ? "edit-" : ""}max-length`}
+              className={inputClass}
+              type="number"
+              min={0}
+              step={1}
+              value={currentMaxLength}
+              onChange={(event) => setCurrentMaxLength(event.target.value)}
+              required
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (type === "format_validation") {
+      return (
+        <div>
+          <label
+            className={labelClass}
+            htmlFor={`${isEdit ? "edit-" : ""}format-type`}
+          >
+            Format
+          </label>
+          <select
+            id={`${isEdit ? "edit-" : ""}format-type`}
+            className={inputClass}
+            value={currentFormat}
+            onChange={(event) => setCurrentFormat(event.target.value)}
+          >
+            <option value="email">Email</option>
+            <option value="phone">Phone</option>
+            <option value="url">URL</option>
+          </select>
+        </div>
+      );
+    }
+
+    if (type === "required_field") {
+      return (
+        <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
+          This rule checks that the selected field has a value. No additional
+          configuration is required.
+        </p>
+      );
+    }
+
+    if (type === "unique_value") {
+      return (
+        <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
+          This rule checks that values are unique. No additional configuration
+          is required.
+        </p>
+      );
+    }
+
+    return null;
+  }
+
+  function renderRuleTypeSelect(isEdit = false) {
+    const value = isEdit ? editRuleType : ruleType;
+    const setValue = isEdit ? setEditRuleType : setRuleType;
+    const id = isEdit ? "edit-rule-type" : "rule-type";
+
     return (
-      datasets.find((dataset) => dataset.id === id)?.name ?? `Dataset #${id}`
+      <div>
+        <label className={labelClass} htmlFor={id}>
+          Rule Type
+        </label>
+        <select
+          id={id}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          className={inputClass}
+          required
+        >
+          {RULE_TYPES.map((type) => (
+            <option key={type.value} value={type.value}>
+              {type.label}
+            </option>
+          ))}
+        </select>
+      </div>
     );
   }
 
@@ -346,58 +688,51 @@ export default function ValidationRules() {
         message={toastMessage}
         type={toastType}
         duration={4000}
-        onClose={closeToast}
+        onClose={() => setToastMessage("")}
       />
 
-      {/* Page Header */}
+      {/* Page header */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Validation Rules</h2>
-
           <p className="mt-1 text-sm text-slate-500">
             Create and manage data quality validation rules.
           </p>
         </div>
 
-        <Button onClick={openModal}>+ Create Rule</Button>
+        <Button onClick={openCreateModal}>+ Create Rule</Button>
       </div>
 
-      {/* Create Rule Modal */}
+      {/* Create modal */}
       <Modal
         isOpen={isModalOpen}
-        onClose={closeModal}
+        onClose={closeCreateModal}
         title="Create Validation Rule"
-        description="Select a dataset and configure its validation rule."
+        description="Select a dataset and configure the validation rule."
         size="lg"
       >
         <form onSubmit={handleCreateRule} className="space-y-5">
-          <div className="w-full flex gap-16">
-            <label
-              htmlFor="rule-dataset"
-              className="mt-2.5 block text-sm font-medium text-slate-700 text-nowrap"
-            >
+          <div>
+            <label className={labelClass} htmlFor="rule-dataset">
               Dataset
             </label>
-
             <select
               id="rule-dataset"
+              className={inputClass}
               value={datasetId}
               onChange={(event) => setDatasetId(event.target.value)}
-              required
               disabled={datasetsLoading || datasets.length === 0}
-              className="ml-5.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100"
+              required
             >
               <option value="">
                 {datasetsLoading ? "Loading datasets..." : "Select a dataset"}
               </option>
-
               {datasets.map((dataset) => (
                 <option key={dataset.id} value={dataset.id}>
                   {dataset.name}
                 </option>
               ))}
             </select>
-
             {!datasetsLoading && datasets.length === 0 && (
               <p className="mt-2 text-sm text-amber-600">
                 No datasets found. Create a dataset first.
@@ -405,59 +740,37 @@ export default function ValidationRules() {
             )}
           </div>
 
-          <Input
-            label="Rule Name"
-            placeholder="Example: Customer Email Check"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
-
-          <div className="w-full flex gap-16">
-            <label
-              htmlFor="rule-type"
-              className="mt-2.5 block text-sm font-medium text-slate-700 text-nowrap"
-            >
-              Rule Type
-            </label>
-
-            <select
-              id="rule-type"
-              value={ruleType}
-              onChange={(event) => setRuleType(event.target.value)}
+          <div>
+            <Input
+              label="Rule Name"
+              placeholder="Example: Customer Email Check"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
               required
-              className="ml-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            >
-              {RULE_TYPES.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
+          {renderRuleTypeSelect()}
+          {renderConfigurationFields()}
+
           <div>
-            <label
-              htmlFor="rule-description"
-              className="mb-2 block text-sm font-medium text-slate-700"
-            >
+            <label className={labelClass} htmlFor="rule-description">
               Description
             </label>
-
             <textarea
               id="rule-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Describe what this rule checks"
               rows={3}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className={inputClass}
             />
           </div>
 
           {formError && (
             <p
               role="alert"
-              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600"
+              className="rounded-lg bg-red-50 p-3 text-sm text-red-700"
             >
               {formError}
             </p>
@@ -467,12 +780,11 @@ export default function ValidationRules() {
             <Button
               type="button"
               variant="secondary"
-              onClick={closeModal}
+              onClick={closeCreateModal}
               disabled={saving}
             >
               Cancel
             </Button>
-
             <Button
               type="submit"
               loading={saving}
@@ -484,85 +796,80 @@ export default function ValidationRules() {
         </form>
       </Modal>
 
-      {/* View Rule Modal */}
+      {/* View modal */}
       <Modal
         isOpen={viewingRule !== null}
-        onClose={closeViewModal}
+        onClose={() => setViewingRule(null)}
         title="Validation Rule Details"
-        description="View the selected validation rule information."
+        description="View validation rule information."
         size="lg"
       >
         {viewingRule && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Rule Name
-                </p>
+                <p className="text-xs uppercase text-slate-500">Rule Name</p>
                 <p className="mt-1 break-words text-sm font-semibold text-slate-900">
                   {viewingRule.name}
                 </p>
               </div>
+
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Dataset
-                </p>
+                <p className="text-xs uppercase text-slate-500">Dataset</p>
                 <p className="mt-1 text-sm text-slate-800">
                   {getDatasetName(viewingRule.dataset_id)}
                 </p>
               </div>
+
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Rule Type
-                </p>
+                <p className="text-xs uppercase text-slate-500">Rule Type</p>
                 <p className="mt-1 text-sm text-slate-800">
                   {RULE_TYPES.find(
-                    (type) => type.value === viewingRule.rule_type,
+                    (item) => item.value === viewingRule.rule_type,
                   )?.label ?? viewingRule.rule_type}
                 </p>
               </div>
+
               <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Status
-                </p>
+                <p className="text-xs uppercase text-slate-500">Status</p>
                 <div className="mt-1">
                   <Badge status={viewingRule.is_active ? "success" : "neutral"}>
                     {viewingRule.is_active ? "Active" : "Inactive"}
                   </Badge>
                 </div>
               </div>
+
               <div className="sm:col-span-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Description
-                </p>
-                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-800">
+                <p className="text-xs uppercase text-slate-500">Description</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
                   {viewingRule.description || "No description provided."}
                 </p>
               </div>
+
               <div className="sm:col-span-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <p className="text-xs uppercase text-slate-500">
                   Configuration
                 </p>
                 <pre className="mt-1 overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
                   {JSON.stringify(viewingRule.configuration ?? {}, null, 2)}
                 </pre>
               </div>
+
               {viewingRule.created_at && (
                 <div className="sm:col-span-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Created At
-                  </p>
+                  <p className="text-xs uppercase text-slate-500">Created At</p>
                   <p className="mt-1 text-sm text-slate-800">
                     {new Date(viewingRule.created_at).toLocaleString()}
                   </p>
                 </div>
               )}
             </div>
+
             <div className="flex justify-end border-t border-slate-100 pt-4">
               <Button
                 type="button"
                 variant="secondary"
-                onClick={closeViewModal}
+                onClick={() => setViewingRule(null)}
               >
                 Close
               </Button>
@@ -571,7 +878,7 @@ export default function ValidationRules() {
         )}
       </Modal>
 
-      {/* Edit Rule Modal */}
+      {/* Edit modal */}
       <Modal
         isOpen={editingRule !== null}
         onClose={closeEditModal}
@@ -580,24 +887,18 @@ export default function ValidationRules() {
         size="lg"
       >
         <form onSubmit={handleUpdateRule} className="space-y-5">
-          <div className="w-full flex gap-16">
-            <label
-              htmlFor="edit-rule-dataset"
-              className="mt-2.5 block text-sm font-medium text-slate-700 text-nowrap"
-            >
+          <div>
+            <label className={labelClass} htmlFor="edit-dataset">
               Dataset
             </label>
-
             <select
-              id="edit-rule-dataset"
+              id="edit-dataset"
+              className={inputClass}
               value={editDatasetId}
               onChange={(event) => setEditDatasetId(event.target.value)}
               required
-              disabled={datasetsLoading || datasets.length === 0}
-              className="ml-5.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100"
             >
               <option value="">Select a dataset</option>
-
               {datasets.map((dataset) => (
                 <option key={dataset.id} value={dataset.id}>
                   {dataset.name}
@@ -614,44 +915,20 @@ export default function ValidationRules() {
             required
           />
 
-          <div className="w-full flex gap-16">
-            <label
-              htmlFor="edit-rule-type"
-              className="mt-2.5 block text-sm font-medium text-slate-700 text-nowrap"
-            >
-              Rule Type
-            </label>
-
-            <select
-              id="edit-rule-type"
-              value={editRuleType}
-              onChange={(event) => setEditRuleType(event.target.value)}
-              required
-              className="ml-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            >
-              {RULE_TYPES.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {renderRuleTypeSelect(true)}
+          {renderConfigurationFields(true)}
 
           <div>
-            <label
-              htmlFor="edit-rule-description"
-              className="mb-2 block text-sm font-medium text-slate-700"
-            >
+            <label className={labelClass} htmlFor="edit-description">
               Description
             </label>
-
             <textarea
-              id="edit-rule-description"
+              id="edit-description"
+              className={inputClass}
               value={editDescription}
               onChange={(event) => setEditDescription(event.target.value)}
               placeholder="Describe what this rule checks"
               rows={3}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
           </div>
 
@@ -677,7 +954,7 @@ export default function ValidationRules() {
           {editError && (
             <p
               role="alert"
-              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600"
+              className="rounded-lg bg-red-50 p-3 text-sm text-red-700"
             >
               {editError}
             </p>
@@ -692,56 +969,45 @@ export default function ValidationRules() {
             >
               Cancel
             </Button>
-
-            <Button
-              type="submit"
-              loading={updating}
-              disabled={updating || datasetsLoading || datasets.length === 0}
-            >
+            <Button type="submit" loading={updating} disabled={updating}>
               {updating ? "Updating..." : "Update Rule"}
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* Search and dataset filter */}
+      {/* Search and filters */}
       <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-[minmax(0,1fr)_240px_130px]">
         <div>
-          <label
-            htmlFor="validation-rule-search"
-            className="mb-1.5 block text-sm font-medium text-slate-700"
-          >
+          <label className={labelClass} htmlFor="rule-search">
             Search validation rules
           </label>
           <input
-            id="validation-rule-search"
+            id="rule-search"
             type="search"
+            className={inputClass}
             value={searchTerm}
             onChange={(event) => {
               setSearchTerm(event.target.value);
               setCurrentPage(1);
             }}
-            placeholder="Search name, description or rule type..."
-            className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            placeholder="Search name, description or type..."
           />
         </div>
 
         <div>
-          <label
-            htmlFor="validation-dataset-filter"
-            className="mb-1.5 block text-sm font-medium text-slate-700"
-          >
+          <label className={labelClass} htmlFor="dataset-filter">
             Filter by dataset
           </label>
           <select
-            id="validation-dataset-filter"
+            id="dataset-filter"
+            className={inputClass}
             value={selectedDatasetFilter}
             onChange={(event) => {
               setSelectedDatasetFilter(event.target.value);
               setCurrentPage(1);
             }}
             disabled={datasetsLoading}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100"
           >
             <option value="all">All datasets</option>
             {datasets.map((dataset) => (
@@ -751,9 +1017,29 @@ export default function ValidationRules() {
             ))}
           </select>
         </div>
+
+        <div>
+          <label className={labelClass} htmlFor="page-size">
+            Rows per page
+          </label>
+          <select
+            id="page-size"
+            className={inputClass}
+            value={pageSize}
+            onChange={(event) => {
+              setPageSize(Number(event.target.value));
+              setCurrentPage(1);
+            }}
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
       </div>
 
-      {/* Loading / Error / Empty / Table */}
+      {/* Table states */}
       {loading ? (
         <Loader message="Loading validation rules..." />
       ) : pageError ? (
@@ -761,7 +1047,6 @@ export default function ValidationRules() {
           <p role="alert" className="text-sm text-red-600">
             {pageError}
           </p>
-
           <Button className="mt-4" onClick={() => void loadRules()}>
             Try Again
           </Button>
@@ -773,7 +1058,7 @@ export default function ValidationRules() {
             description={
               searchTerm.trim() || selectedDatasetFilter !== "all"
                 ? "Try changing the search text or dataset filter."
-                : "Create your first validation rule using the Create Rule button."
+                : "Create your first validation rule."
             }
           />
         </div>
@@ -795,38 +1080,53 @@ export default function ValidationRules() {
               {rules.map((rule) => (
                 <tr
                   key={rule.id}
-                  className="border-t border-slate-100 transition hover:bg-slate-50"
+                  className="border-t border-slate-100 hover:bg-slate-50"
                 >
                   <td className="px-5 py-4 font-medium text-slate-800">
                     {rule.name}
                   </td>
-
                   <td className="px-5 py-4 text-slate-600">
                     {getDatasetName(rule.dataset_id)}
                   </td>
-
                   <td className="px-5 py-4 text-slate-600">
-                    {RULE_TYPES.find((type) => type.value === rule.rule_type)
+                    {RULE_TYPES.find((item) => item.value === rule.rule_type)
                       ?.label ?? rule.rule_type}
                   </td>
-
                   <td className="px-5 py-4 text-slate-600">
                     {rule.description || "—"}
                   </td>
-
                   <td className="px-5 py-4">
                     <Badge status={rule.is_active ? "success" : "neutral"}>
                       {rule.is_active ? "Active" : "Inactive"}
                     </Badge>
                   </td>
-
-                  <td className="px-5 py-4 text-center">
-                    <div className="inline-flex items-center justify-center gap-2">
+                  <td className="px-5 py-4">
+                    <div className="flex items-center justify-center gap-2">
                       <button
                         type="button"
-                        onClick={() => openViewModal(rule)}
-                        title="View validation rule"
-                        aria-label={`View ${rule.name}`}
+                        role="switch"
+                        aria-checked={rule.is_active}
+                        aria-label={`${rule.is_active ? "Deactivate" : "Activate"} ${rule.name}`}
+                        title={
+                          rule.is_active ? "Deactivate rule" : "Activate rule"
+                        }
+                        disabled={
+                          statusUpdatingId === rule.id || deletingId === rule.id
+                        }
+                        onClick={() => void handleToggleStatus(rule)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+                          rule.is_active ? "bg-emerald-500" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                            rule.is_active ? "translate-x-5" : "translate-x-0.5"
+                          }`}
+                        />
+                      </button>
+                      <button
+                        onClick={() => setViewingRule(rule)}
+                        title="View Validation Rules"
                         className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300"
                       >
                         <svg
@@ -848,8 +1148,7 @@ export default function ValidationRules() {
                       <button
                         type="button"
                         onClick={() => openEditModal(rule)}
-                        title="Edit validation rule"
-                        aria-label={`Edit ${rule.name}`}
+                        title="Edit Validation Rules"
                         className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
                       >
                         <svg
@@ -868,11 +1167,14 @@ export default function ValidationRules() {
                           <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
                         </svg>
                       </button>
+
                       <button
-                        type="button"
-                        onClick={() => openDeleteModal(rule)}
-                        title="Delete validation rule"
-                        aria-label={`Delete ${rule.name}`}
+                        disabled={
+                          deletingId === rule.id || statusUpdatingId === rule.id
+                        }
+                        onClick={() => void handleDeleteRule(rule)}
+                        title="Delete Validation Rules"
+                        aria-label={`Delete Validation Rules`}
                         className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
                       >
                         <svg
@@ -902,6 +1204,7 @@ export default function ValidationRules() {
         </div>
       )}
 
+      {/* Pagination */}
       {!loading && !pageError && totalRules > 0 && (
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-500">
@@ -909,32 +1212,9 @@ export default function ValidationRules() {
             {Math.min(currentPage * pageSize, totalRules)} of {totalRules} rules
           </p>
 
-          <div className="flex items-center justify-between gap-3 sm:justify-end">
-            <div className="flex items-center gap-3">
-              <label
-                htmlFor="validation-page-size"
-                className="whitespace-nowrap text-sm text-slate-600"
-              >
-                Rows per page
-              </label>
-              <select
-                id="validation-page-size"
-                value={pageSize}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value));
-                  setCurrentPage(1);
-                }}
-                className="w-full rounded-lg border border-slate-300 bg-white pr-4 pl-1 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value={5}>5</option>
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-              </select>
-            </div>
+          <div className="flex items-center gap-2">
             <Button
               variant="secondary"
-              size="sm"
               disabled={currentPage <= 1 || loading}
               onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
             >
@@ -945,7 +1225,6 @@ export default function ValidationRules() {
             </span>
             <Button
               variant="secondary"
-              size="sm"
               disabled={
                 currentPage >= totalPages || loading || totalPages === 0
               }
@@ -960,54 +1239,6 @@ export default function ValidationRules() {
           </div>
         </div>
       )}
-
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={deletingRule !== null}
-        onClose={closeDeleteModal}
-        title="Delete Validation Rule"
-        description="Confirm whether you want to permanently delete this validation rule."
-        size="lg"
-      >
-        {deletingRule && (
-          <div className="space-y-5">
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-              <p className="text-sm text-red-800">
-                Are you sure you want to delete{" "}
-                <span className="font-semibold">{deletingRule.name}</span>?
-              </p>
-              <p className="mt-2 text-sm text-red-700">
-                This action cannot be undone.
-              </p>
-            </div>
-
-            {deleteError && (
-              <p role="alert" className="text-sm text-red-600">
-                {deleteError}
-              </p>
-            )}
-
-            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={closeDeleteModal}
-                disabled={deleting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void handleDeleteRule()}
-                loading={deleting}
-                disabled={deleting}
-              >
-                {deleting ? "Deleting..." : "Delete Rule"}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
     </PageContainer>
   );
 }

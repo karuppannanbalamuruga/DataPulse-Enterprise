@@ -299,12 +299,7 @@ export default function Organizations() {
     <PageContainer>
       {/* Page heading */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Organizations</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            Manage organizations registered in DataPulse Enterprise.
-          </p>
-        </div>
+        <div></div>
 
         <Button
           onClick={() => {
@@ -377,7 +372,7 @@ export default function Organizations() {
             value={search}
             onChange={(event) => handleSearchChange(event.target.value)}
             placeholder="Search by name or slug..."
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
         </div>
       </div>

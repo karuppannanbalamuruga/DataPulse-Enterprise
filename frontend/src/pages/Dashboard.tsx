@@ -150,7 +150,7 @@ export default function Dashboard() {
   return (
     <PageContainer>
       {/* Dashboard heading */}
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+      {/* <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
             Dashboard
@@ -159,7 +159,7 @@ export default function Dashboard() {
             Overview of your DataPulse Enterprise platform.
           </p>
         </div>
-      </div>
+      </div> */}
 
       {/* Error message */}
       {error && (
