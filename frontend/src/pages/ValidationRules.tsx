@@ -100,6 +100,8 @@ export default function ValidationRules() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDatasetFilter, setSelectedDatasetFilter] = useState("all");
+  const [selectedRuleTypeFilter, setSelectedRuleTypeFilter] = useState("all");
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalRules, setTotalRules] = useState(0);
@@ -133,8 +135,9 @@ export default function ValidationRules() {
   const [maxLength, setMaxLength] = useState("255");
   const [selectedFormat, setSelectedFormat] = useState("email");
 
-  // View state
+  // View and delete confirmation modal state
   const [viewingRule, setViewingRule] = useState<ValidationRule | null>(null);
+  const [deletingRule, setDeletingRule] = useState<ValidationRule | null>(null);
 
   // Edit form state
   const [editingRule, setEditingRule] = useState<ValidationRule | null>(null);
@@ -169,6 +172,14 @@ export default function ValidationRules() {
           selectedDatasetFilter === "all"
             ? undefined
             : Number(selectedDatasetFilter),
+        rule_type:
+          selectedRuleTypeFilter === "all"
+            ? undefined
+            : selectedRuleTypeFilter,
+        is_active:
+          selectedStatusFilter === "all"
+            ? undefined
+            : selectedStatusFilter === "active",
       });
 
       setRules(response.items);
@@ -180,7 +191,7 @@ export default function ValidationRules() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchTerm, selectedDatasetFilter]);
+  }, [currentPage, pageSize, searchTerm, selectedDatasetFilter, selectedRuleTypeFilter, selectedStatusFilter]);
 
   const loadDatasets = useCallback(async () => {
     try {
@@ -454,18 +465,16 @@ export default function ValidationRules() {
     }
   }
 
-  async function handleDeleteRule(rule: ValidationRule) {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${rule.name}"?`,
-    );
+  async function confirmDeleteRule() {
+    if (!deletingRule) return;
 
-    if (!confirmed) return;
+    const rule = deletingRule;
 
     try {
       setDeletingId(rule.id);
-
       await deleteValidationRule(rule.id);
 
+      setDeletingRule(null);
       showToast("Validation rule deleted successfully!");
 
       if (rules.length === 1 && currentPage > 1) {
@@ -693,12 +702,7 @@ export default function ValidationRules() {
 
       {/* Page header */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Validation Rules</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Create and manage data quality validation rules.
-          </p>
-        </div>
+        <div></div>
 
         <Button onClick={openCreateModal}>+ Create Rule</Button>
       </div>
@@ -878,6 +882,74 @@ export default function ValidationRules() {
         )}
       </Modal>
 
+      {/* Delete confirmation modal */}
+      <Modal
+        isOpen={deletingRule !== null}
+        onClose={() => {
+          if (deletingId === null) setDeletingRule(null);
+        }}
+        title="Delete Validation Rule?"
+        description="Please confirm this action."
+        size="md"
+      >
+        {deletingRule && (
+          <div className="space-y-5">
+            <div className="flex items-start gap-3 rounded-lg border border-red-100 bg-red-50 p-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="m19 6-1 14H6L5 6" />
+                  <path d="M10 11v5M14 11v5" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-900">
+                  Are you sure you want to delete this rule?
+                </p>
+                <p className="mt-1 break-words text-sm text-slate-600">
+                  <span className="font-medium text-slate-800">
+                    {deletingRule.name}
+                  </span>{" "}
+                  will be permanently deleted. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setDeletingRule(null)}
+                disabled={deletingId === deletingRule.id}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                onClick={() => void confirmDeleteRule()}
+                loading={deletingId === deletingRule.id}
+                disabled={deletingId === deletingRule.id}
+              >
+                {deletingId === deletingRule.id ? "Deleting..." : "Delete Rule"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {/* Edit modal */}
       <Modal
         isOpen={editingRule !== null}
@@ -977,7 +1049,7 @@ export default function ValidationRules() {
       </Modal>
 
       {/* Search and filters */}
-      <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-[minmax(0,1fr)_240px_130px]">
+      <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_220px_200px_160px]">
         <div>
           <label className={labelClass} htmlFor="rule-search">
             Search validation rules
@@ -1019,22 +1091,43 @@ export default function ValidationRules() {
         </div>
 
         <div>
-          <label className={labelClass} htmlFor="page-size">
-            Rows per page
+          <label className={labelClass} htmlFor="rule-type-filter">
+            Validation Type
           </label>
           <select
-            id="page-size"
+            id="rule-type-filter"
             className={inputClass}
-            value={pageSize}
+            value={selectedRuleTypeFilter}
             onChange={(event) => {
-              setPageSize(Number(event.target.value));
+              setSelectedRuleTypeFilter(event.target.value);
               setCurrentPage(1);
             }}
           >
-            <option value={5}>5</option>
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
+            <option value="all">All validation types</option>
+            {RULE_TYPES.map((type) => (
+              <option key={type.value} value={type.value}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className={labelClass} htmlFor="rule-status-filter">
+            Status
+          </label>
+          <select
+            id="rule-status-filter"
+            className={inputClass}
+            value={selectedStatusFilter}
+            onChange={(event) => {
+              setSelectedStatusFilter(event.target.value);
+              setCurrentPage(1);
+            }}
+          >
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
           </select>
         </div>
       </div>
@@ -1056,8 +1149,11 @@ export default function ValidationRules() {
           <EmptyState
             title="No validation rules found"
             description={
-              searchTerm.trim() || selectedDatasetFilter !== "all"
-                ? "Try changing the search text or dataset filter."
+              searchTerm.trim() ||
+              selectedDatasetFilter !== "all" ||
+              selectedRuleTypeFilter !== "all" ||
+              selectedStatusFilter !== "all"
+                ? "Try changing the search text or filters."
                 : "Create your first validation rule."
             }
           />
@@ -1172,7 +1268,7 @@ export default function ValidationRules() {
                         disabled={
                           deletingId === rule.id || statusUpdatingId === rule.id
                         }
-                        onClick={() => void handleDeleteRule(rule)}
+                        onClick={() => setDeletingRule(rule)}
                         title="Delete Validation Rules"
                         aria-label={`Delete Validation Rules`}
                         className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
@@ -1213,6 +1309,29 @@ export default function ValidationRules() {
           </p>
 
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <label
+                htmlFor="organization-page-size"
+                className="whitespace-nowrap text-sm text-slate-600"
+              >
+                Rows per page
+              </label>
+
+              <select
+                id="page-size"
+                className="rounded-lg border border-slate-300 pr-4 pl-1 py-1.5 text-sm outline-none focus:border-blue-500"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setCurrentPage(1);
+                }}
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
             <Button
               variant="secondary"
               disabled={currentPage <= 1 || loading}

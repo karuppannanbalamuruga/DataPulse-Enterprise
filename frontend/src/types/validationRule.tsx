@@ -40,4 +40,6 @@ export interface ValidationRuleQueryParams {
   page_size?: number;
   search?: string;
   dataset_id?: number;
+  rule_type?: string;
+  is_active?: boolean;
 }
