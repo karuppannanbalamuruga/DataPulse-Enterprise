@@ -4,3 +4,7 @@ __pycache__/
 .venv/
 venv/
 .env
+# Temporary standalone test files
+test_csv_validation.py
+test_database_validation.py
+test_validation_engine.py
