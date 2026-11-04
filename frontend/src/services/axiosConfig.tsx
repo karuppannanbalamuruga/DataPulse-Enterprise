@@ -3,9 +3,8 @@ import axios from "axios";
 
 const axiosConfig = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000",
-  timeout: 10000,
+  timeout: 30000,
   headers: {
-    "Content-Type": "application/json",
     Accept: "application/json",
   },
 });
@@ -21,9 +20,15 @@ axiosConfig.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response) {
-      console.error("API Error:", error.response.status, error.response.data);
+      console.error(
+        "API Error:",
+        error.response.status,
+        error.response.data,
+      );
     } else if (error.request) {
       console.error("Server is not reachable.");
+    } else {
+      console.error("Request Error:", error.message);
     }
 
     return Promise.reject(error);

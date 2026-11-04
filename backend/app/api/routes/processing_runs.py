@@ -1,3 +1,4 @@
+
 from datetime import datetime
 from math import ceil
 from typing import Literal
@@ -19,16 +20,34 @@ router = APIRouter(
 )
 
 
+# ==================================================
+# DATABASE DEPENDENCY
+# ==================================================
+
 def get_db():
     db = SessionLocal()
+
     try:
         yield db
     finally:
         db.close()
 
 
-RunStatus = Literal["pending", "processing", "completed", "failed"]
+# ==================================================
+# STATUS
+# ==================================================
 
+RunStatus = Literal[
+    "pending",
+    "processing",
+    "completed",
+    "failed",
+]
+
+
+# ==================================================
+# REQUEST SCHEMAS
+# ==================================================
 
 class ProcessingRunCreate(BaseModel):
     dataset_id: int = Field(gt=0)
@@ -36,23 +55,40 @@ class ProcessingRunCreate(BaseModel):
 
 class ProcessingRunPatch(BaseModel):
     status: RunStatus | None = None
-    records_processed: int | None = Field(default=None, ge=0)
+    records_processed: int | None = Field(
+        default=None,
+        ge=0,
+    )
     error_message: str | None = None
     completed_at: datetime | None = None
 
     model_config = ConfigDict(extra="forbid")
 
 
+# ==================================================
+# RESPONSE SCHEMAS
+# ==================================================
+
 class ProcessingRunResponse(BaseModel):
     id: int
     dataset_id: int
     status: str
+
     records_processed: int = Field(ge=0)
+
+    total_rules_executed: int = Field(ge=0)
+    passed_checks: int = Field(ge=0)
+    failed_checks: int = Field(ge=0)
+    quality_score: float = Field(ge=0, le=100)
+
     error_message: str | None = None
+
     started_at: datetime
     completed_at: datetime | None = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True
+    )
 
 
 class ProcessingRunListResponse(BaseModel):
@@ -63,26 +99,46 @@ class ProcessingRunListResponse(BaseModel):
     total_pages: int
 
 
-# GET all processing runs with search, filters and pagination
-@router.get("", response_model=ProcessingRunListResponse)
+# ==================================================
+# GET ALL PROCESSING RUNS
+# Search, Filter and Pagination
+# ==================================================
+
+@router.get(
+    "",
+    response_model=ProcessingRunListResponse,
+)
 def get_processing_runs(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
-    search: str | None = Query(default=None, max_length=200),
-    dataset_id: int | None = Query(default=None, ge=1),
-    status: RunStatus | None = Query(default=None),
+    search: str | None = Query(
+        default=None,
+        max_length=200,
+    ),
+    dataset_id: int | None = Query(
+        default=None,
+        ge=1,
+    ),
+    status: RunStatus | None = Query(
+        default=None,
+    ),
     db: Session = Depends(get_db),
 ):
     query = db.query(ProcessingRun)
 
     if dataset_id is not None:
-        query = query.filter(ProcessingRun.dataset_id == dataset_id)
+        query = query.filter(
+            ProcessingRun.dataset_id == dataset_id
+        )
 
     if status is not None:
-        query = query.filter(ProcessingRun.status == status)
+        query = query.filter(
+            ProcessingRun.status == status
+        )
 
     if search and search.strip():
         term = f"%{search.strip()}%"
+
         query = query.join(
             Dataset,
             ProcessingRun.dataset_id == Dataset.id,
@@ -95,10 +151,16 @@ def get_processing_runs(
         )
 
     total = query.count()
-    total_pages = ceil(total / page_size) if total else 0
+
+    total_pages = (
+        ceil(total / page_size)
+        if total
+        else 0
+    )
 
     runs = (
-        query.order_by(
+        query
+        .order_by(
             ProcessingRun.started_at.desc(),
             ProcessingRun.id.desc(),
         )
@@ -116,9 +178,15 @@ def get_processing_runs(
     }
 
 
-# GET failed processing runs ONLY
+# ==================================================
+# GET FAILED PROCESSING RUNS
 # Keep this route before /{run_id}
-@router.get("/failed", response_model=ProcessingRunListResponse)
+# ==================================================
+
+@router.get(
+    "/failed",
+    response_model=ProcessingRunListResponse,
+)
 def get_failed_processing_runs(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
@@ -129,10 +197,16 @@ def get_failed_processing_runs(
     )
 
     total = query.count()
-    total_pages = ceil(total / page_size) if total else 0
+
+    total_pages = (
+        ceil(total / page_size)
+        if total
+        else 0
+    )
 
     runs = (
-        query.order_by(
+        query
+        .order_by(
             ProcessingRun.started_at.desc(),
             ProcessingRun.id.desc(),
         )
@@ -150,8 +224,14 @@ def get_failed_processing_runs(
     }
 
 
-# GET one processing run by ID
-@router.get("/{run_id}", response_model=ProcessingRunResponse)
+# ==================================================
+# GET PROCESSING RUN BY ID
+# ==================================================
+
+@router.get(
+    "/{run_id}",
+    response_model=ProcessingRunResponse,
+)
 def get_processing_run(
     run_id: int,
     db: Session = Depends(get_db),
@@ -171,8 +251,15 @@ def get_processing_run(
     return run
 
 
-# CREATE processing run
-@router.post("", status_code=201, response_model=ProcessingRunResponse)
+# ==================================================
+# CREATE PROCESSING RUN
+# ==================================================
+
+@router.post(
+    "",
+    status_code=201,
+    response_model=ProcessingRunResponse,
+)
 def create_processing_run(
     dataset_id: int = Query(..., ge=1),
     db: Session = Depends(get_db),
@@ -193,24 +280,36 @@ def create_processing_run(
         dataset_id=dataset_id,
         status="pending",
         records_processed=0,
+        total_rules_executed=0,
+        passed_checks=0,
+        failed_checks=0,
+        quality_score=0.0,
     )
 
     try:
         db.add(run)
         db.commit()
         db.refresh(run)
+
         return run
 
     except SQLAlchemyError:
         db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail="Could not create processing run",
         )
 
 
-# UPDATE processing run
-@router.patch("/{run_id}", response_model=ProcessingRunResponse)
+# ==================================================
+# UPDATE PROCESSING RUN
+# ==================================================
+
+@router.patch(
+    "/{run_id}",
+    response_model=ProcessingRunResponse,
+)
 def patch_processing_run(
     run_id: int,
     payload: ProcessingRunPatch,
@@ -234,9 +333,14 @@ def patch_processing_run(
             detail="A completed processing run cannot be updated",
         )
 
-    updates = payload.model_dump(exclude_unset=True)
+    updates = payload.model_dump(
+        exclude_unset=True
+    )
 
-    if "status" in updates and updates["status"] is None:
+    if (
+        "status" in updates
+        and updates["status"] is None
+    ):
         raise HTTPException(
             status_code=400,
             detail="status cannot be null",
@@ -254,24 +358,35 @@ def patch_processing_run(
     for field, value in updates.items():
         setattr(run, field, value)
 
-    if run.status == "completed" and "completed_at" not in updates:
+    if (
+        run.status == "completed"
+        and "completed_at" not in updates
+    ):
         run.completed_at = datetime.utcnow()
 
     try:
         db.commit()
         db.refresh(run)
+
         return run
 
     except SQLAlchemyError:
         db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail="Could not update processing run",
         )
 
 
-# DELETE processing run
-@router.delete("/{run_id}", status_code=204)
+# ==================================================
+# DELETE PROCESSING RUN
+# ==================================================
+
+@router.delete(
+    "/{run_id}",
+    status_code=204,
+)
 def delete_processing_run(
     run_id: int,
     db: Session = Depends(get_db),
@@ -291,8 +406,10 @@ def delete_processing_run(
     try:
         db.delete(run)
         db.commit()
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=409,
             detail=(
@@ -300,11 +417,16 @@ def delete_processing_run(
                 "or a database constraint prevents deletion."
             ),
         )
+
     except SQLAlchemyError:
         db.rollback()
+
         raise HTTPException(
             status_code=500,
-            detail="A database error occurred while deleting the processing run.",
+            detail=(
+                "A database error occurred while deleting "
+                "the processing run."
+            ),
         )
 
     return Response(status_code=204)

@@ -1,4 +1,4 @@
-
+﻿
 import pytest
 from fastapi.testclient import TestClient
 
@@ -47,7 +47,7 @@ def created_rule(test_dataset):
             "name": "Automation Required Field Rule",
             "rule_type": "required_field",
             "description": "Check required fields",
-            "configuration": {},
+            "configuration": {"column": "name"},
             "is_active": True,
         },
     )
@@ -110,7 +110,7 @@ def test_create_validation_rule(test_dataset):
             "name": "Email Format Rule",
             "rule_type": "format_validation",
             "description": "Validate email format",
-            "configuration": {"format": "email"},
+            "configuration": {"column": "email", "format": "email"},
             "is_active": True,
         },
     )
@@ -173,7 +173,7 @@ def test_create_rule_without_name(test_dataset):
         json={
             "dataset_id": test_dataset["id"],
             "rule_type": "required_field",
-            "configuration": {},
+            "configuration": {"column": "name"},
         },
     )
 
@@ -187,7 +187,7 @@ def test_create_rule_with_invalid_dataset():
             "dataset_id": 999999,
             "name": "Invalid Dataset Rule",
             "rule_type": "required_field",
-            "configuration": {},
+            "configuration": {"column": "name"},
         },
     )
 
@@ -201,3 +201,4 @@ def test_patch_rule_with_empty_payload(created_rule):
     )
 
     assert response.status_code == 422
+

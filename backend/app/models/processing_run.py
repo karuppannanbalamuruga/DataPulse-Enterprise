@@ -6,6 +6,8 @@ from sqlalchemy import (
     ForeignKey,
     DateTime,
     Text,
+    Float,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +32,7 @@ class ProcessingRun(Base):
         String(30),
         nullable=False,
         default="pending",
+        server_default="pending",
         index=True,
     )
 
@@ -37,6 +40,35 @@ class ProcessingRun(Base):
         Integer,
         nullable=False,
         default=0,
+        server_default=text("0"),
+    )
+
+    total_rules_executed: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+
+    passed_checks: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+
+    failed_checks: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+
+    quality_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        server_default=text("0"),
     )
 
     error_message: Mapped[str | None] = mapped_column(
@@ -58,4 +90,16 @@ class ProcessingRun(Base):
     dataset = relationship(
         "Dataset",
         back_populates="processing_runs",
+    )
+
+    validation_results = relationship(
+        "ValidationResult",
+        back_populates="processing_run",
+        cascade="all, delete-orphan",
+    )
+
+    validation_issues = relationship(
+        "ValidationIssue",
+        back_populates="processing_run",
+        cascade="all, delete-orphan",
     )

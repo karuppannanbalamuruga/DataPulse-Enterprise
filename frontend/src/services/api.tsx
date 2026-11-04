@@ -1,3 +1,4 @@
+
 import api from "./axiosConfig";
 
 import type {
@@ -39,23 +40,26 @@ import type {
 export const getDatasets = async (
   params: DatasetQueryParams = {},
 ): Promise<DatasetListResponse> => {
-  const response = await api.get<DatasetListResponse>("/api/v1/datasets", {
-    params,
-  });
+  const response = await api.get<DatasetListResponse>(
+    "/api/v1/datasets",
+    { params },
+  );
 
   return response.data;
 };
 
 export const getDataset = async (id: number): Promise<Dataset> => {
   const response = await api.get<Dataset>(`/api/v1/datasets/${id}`);
-
   return response.data;
 };
 
 export const createDataset = async (
   payload: CreateDatasetPayload,
 ): Promise<Dataset> => {
-  const response = await api.post<Dataset>("/api/v1/datasets", payload);
+  const response = await api.post<Dataset>(
+    "/api/v1/datasets",
+    payload,
+  );
 
   return response.data;
 };
@@ -64,16 +68,17 @@ export const updateDataset = async (
   id: number,
   payload: UpdateDatasetPayload,
 ): Promise<Dataset> => {
-  const response = await api.patch<Dataset>(`/api/v1/datasets/${id}`, payload);
+  const response = await api.patch<Dataset>(
+    `/api/v1/datasets/${id}`,
+    payload,
+  );
 
   return response.data;
 };
 
-// Delete Dataset
 export const deleteDataset = async (id: number): Promise<void> => {
   await api.delete(`/api/v1/datasets/${id}`);
-}
-
+};
 
 // =====================================================
 // 2. VALIDATION RULE APIs
@@ -123,7 +128,6 @@ export const updateValidationRule = async (
   return response.data;
 };
 
-
 export const updateValidationRuleStatus = async (
   id: number,
   is_active: boolean,
@@ -136,7 +140,6 @@ export const updateValidationRuleStatus = async (
   return response.data;
 };
 
-// Delete Validation Rule
 export const deleteValidationRule = async (
   id: number,
 ): Promise<void> => {
@@ -147,28 +150,27 @@ export const deleteValidationRule = async (
 // 3. ORGANIZATION APIs
 // =====================================================
 
-// GET all organizations
 export const getOrganizations = async (
   params: OrganizationQueryParams = {},
 ): Promise<OrganizationListResponse> => {
   const response = await api.get<OrganizationListResponse>(
     "/api/v1/organizations",
-    {
-      params,
-    },
+    { params },
   );
 
   return response.data;
 };
 
-// GET organization by ID
-export const getOrganization = async (id: number): Promise<Organization> => {
-  const response = await api.get<Organization>(`/api/v1/organizations/${id}`);
+export const getOrganization = async (
+  id: number,
+): Promise<Organization> => {
+  const response = await api.get<Organization>(
+    `/api/v1/organizations/${id}`,
+  );
 
   return response.data;
 };
 
-// CREATE organization
 export const createOrganization = async (
   payload: CreateOrganizationPayload,
 ): Promise<Organization> => {
@@ -180,7 +182,6 @@ export const createOrganization = async (
   return response.data;
 };
 
-// UPDATE organization using PATCH
 export const updateOrganization = async (
   id: number,
   payload: UpdateOrganizationPayload,
@@ -193,7 +194,6 @@ export const updateOrganization = async (
   return response.data;
 };
 
-// Delete Organization
 export const deleteOrganization = async (
   id: number,
 ): Promise<void> => {
@@ -204,7 +204,6 @@ export const deleteOrganization = async (
 // 4. PROCESSING RUN APIs
 // =====================================================
 
-// GET all processing runs with pagination
 export const getProcessingRuns = async (
   params: ProcessingRunQueryParams = {},
 ): Promise<ProcessingRunsResponse> => {
@@ -216,8 +215,9 @@ export const getProcessingRuns = async (
   return response.data;
 };
 
-// GET processing run by ID
-export const getProcessingRun = async (id: number): Promise<ProcessingRun> => {
+export const getProcessingRun = async (
+  id: number,
+): Promise<ProcessingRun> => {
   const response = await api.get<ProcessingRun>(
     `/api/v1/processing-runs/${id}`,
   );
@@ -225,7 +225,6 @@ export const getProcessingRun = async (id: number): Promise<ProcessingRun> => {
   return response.data;
 };
 
-// CREATE processing run
 export const createProcessingRun = async (
   datasetId: number,
 ): Promise<ProcessingRun> => {
@@ -240,7 +239,6 @@ export const createProcessingRun = async (
   return response.data;
 };
 
-// UPDATE processing run using PATCH
 export const updateProcessingRun = async (
   id: number,
   payload: UpdateProcessingRunPayload,
@@ -253,7 +251,6 @@ export const updateProcessingRun = async (
   return response.data;
 };
 
-// Delete Processing Run
 export const deleteProcessingRun = async (
   id: number,
 ): Promise<void> => {
@@ -272,6 +269,117 @@ export const getFailedProcessingRuns = async (
         page_size: pageSize,
       },
     },
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 5. QUALITY SUMMARY API
+// =====================================================
+
+export interface QualitySummary {
+  dataset_id: number;
+  dataset_name: string;
+  total_processing_runs: number;
+  total_records_processed: number;
+  total_rules_executed: number;
+  total_passed_checks: number;
+  total_failed_checks: number;
+  quality_score: number;
+
+  latest_run: {
+    processing_run_id: number;
+    status: string;
+    records_processed: number;
+    total_rules_executed: number;
+    passed_checks: number;
+    failed_checks: number;
+    quality_score: number;
+    started_at: string;
+    completed_at: string | null;
+  } | null;
+}
+
+export const getQualitySummary = async (
+  datasetId: number,
+): Promise<QualitySummary> => {
+  const response = await api.get<QualitySummary>(
+    `/api/v1/datasets/${datasetId}/quality-summary`,
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 6. CSV UPLOAD API
+// =====================================================
+
+export interface CSVUploadResponse {
+  message: string;
+  dataset_id: number;
+  filename: string;
+  file_size: number;
+  columns: string[];
+  total_rows: number;
+  uploaded_at: string;
+}
+
+export const uploadDatasetCSV = async (
+  datasetId: number,
+  file: File,
+): Promise<CSVUploadResponse> => {
+  const formData = new FormData();
+
+  formData.append("file", file);
+
+  const response = await api.post<CSVUploadResponse>(
+    `/api/v1/datasets/${datasetId}/upload`,
+    formData,
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 7. EXECUTE VALIDATION API
+// =====================================================
+
+export interface ValidationResultItem {
+  rule_id: number;
+  column_name: string | null;
+  total_checked: number;
+  passed_count: number;
+  failed_count: number;
+  status: string;
+}
+
+export interface ValidationIssueItem {
+  rule_id: number;
+  row_number: number;
+  column_name: string;
+  invalid_value: string | null;
+  error_description: string;
+}
+
+export interface ExecuteValidationResponse {
+  processing_run_id: number;
+  dataset_id: number;
+  status: string;
+  records_processed: number;
+  total_rules_executed: number;
+  passed_checks: number;
+  failed_checks: number;
+  quality_score: number;
+  results: ValidationResultItem[];
+  issues: ValidationIssueItem[];
+}
+
+export const executeDatasetValidation = async (
+  datasetId: number,
+): Promise<ExecuteValidationResponse> => {
+  const response = await api.post<ExecuteValidationResponse>(
+    `/api/v1/datasets/${datasetId}/execute`,
   );
 
   return response.data;

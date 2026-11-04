@@ -1,4 +1,3 @@
-
 from datetime import datetime
 from typing import Any, Literal
 
@@ -26,26 +25,26 @@ SupportedFormat = Literal["email", "phone", "url"]
 
 
 def validate_configuration(rule_type: str, configuration: dict[str, Any]):
+    if not isinstance(configuration, dict):
+        raise ValueError("configuration must be an object")
+
+    column = configuration.get("column")
+
+    if not isinstance(column, str) or not column.strip():
+        raise ValueError("column is required")
+
     if rule_type in {"required_field", "unique_value"}:
-        if configuration:
-            raise ValueError(
-                f"{rule_type} does not require configuration fields"
-            )
+        pass
 
     elif rule_type == "data_type":
         if configuration.get("expected_type") not in {
             "integer", "number", "string", "boolean", "date"
         }:
-            raise ValueError(
-                "expected_type must be integer, number, string, boolean, or date"
-            )
+            raise ValueError("Invalid expected_type")
 
     elif rule_type == "numeric_range":
         minimum = configuration.get("min")
         maximum = configuration.get("max")
-
-        if minimum is None or maximum is None:
-            raise ValueError("Numeric range requires min and max")
 
         if (
             isinstance(minimum, bool)
@@ -75,21 +74,22 @@ def validate_configuration(rule_type: str, configuration: dict[str, Any]):
 
     elif rule_type == "format_validation":
         if configuration.get("format") not in {"email", "phone", "url"}:
-            raise ValueError("format must be email, phone, or url")
+            raise ValueError("Invalid format")
 
     else:
         raise ValueError("Unsupported validation rule type")
 
     allowed_keys = {
-        "required_field": set(),
-        "unique_value": set(),
-        "data_type": {"expected_type"},
-        "numeric_range": {"min", "max"},
-        "string_length": {"min_length", "max_length"},
-        "format_validation": {"format"},
+        "required_field": {"column"},
+        "unique_value": {"column"},
+        "data_type": {"column", "expected_type"},
+        "numeric_range": {"column", "min", "max"},
+        "string_length": {"column", "min_length", "max_length"},
+        "format_validation": {"column", "format"},
     }
 
     unknown = set(configuration) - allowed_keys[rule_type]
+
     if unknown:
         raise ValueError(
             f"Unknown configuration fields: {', '.join(sorted(unknown))}"

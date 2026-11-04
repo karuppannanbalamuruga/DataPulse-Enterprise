@@ -1,13 +1,26 @@
-from math import ceil
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func
+import csv
+from pathlib import Path
+from datetime import datetime
+from uuid import uuid4
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    File,
+)
+
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
 from app.models.dataset import Dataset
 from app.models.organization import Organization
+
 from app.schemas.dataset import (
     DatasetCreate,
     DatasetUpdate,
@@ -15,35 +28,57 @@ from app.schemas.dataset import (
     DatasetListResponse,
 )
 
+from app.services.csv_processor import process_csv
+from app.services.csv_service import execute_csv_validation
+
+
+# ==================================================
+# ROUTER CONFIGURATION
+# ==================================================
+
 router = APIRouter(
     prefix="/api/v1/datasets",
     tags=["Datasets"],
 )
 
-ALLOWED_STATUSES = {
-    "pending",
-    "processing",
-    "completed",
-    "failed",
-}
 
+# ==================================================
+# CSV UPLOAD CONFIGURATION
+# ==================================================
+
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+UPLOAD_DIR = Path(__file__).resolve().parents[3] / "uploads"
+
+
+# ==================================================
+# DATABASE DEPENDENCY
+# ==================================================
 
 def get_db():
     db = SessionLocal()
+
     try:
         yield db
     finally:
         db.close()
 
 
-def get_dataset_or_404(dataset_id: int, db: Session) -> Dataset:
+# ==================================================
+# HELPER FUNCTIONS
+# ==================================================
+
+def get_dataset_or_404(
+    dataset_id: int,
+    db: Session,
+):
     dataset = (
         db.query(Dataset)
         .filter(Dataset.id == dataset_id)
         .first()
     )
 
-    if dataset is None:
+    if not dataset:
         raise HTTPException(
             status_code=404,
             detail="Dataset not found",
@@ -52,228 +87,485 @@ def get_dataset_or_404(dataset_id: int, db: Session) -> Dataset:
     return dataset
 
 
-def validate_organization(organization_id: int, db: Session) -> None:
+def validate_organization(
+    organization_id: int,
+    db: Session,
+):
     organization = (
         db.query(Organization)
         .filter(Organization.id == organization_id)
         .first()
     )
 
-    if organization is None:
+    if not organization:
         raise HTTPException(
             status_code=404,
             detail="Organization not found",
         )
 
+    return organization
+
 
 def ensure_unique_name(
-    organization_id: int,
     name: str,
+    organization_id: int,
     db: Session,
     exclude_dataset_id: int | None = None,
-) -> None:
+):
     query = db.query(Dataset).filter(
         Dataset.organization_id == organization_id,
-        func.lower(Dataset.name) == name.strip().lower(),
+        Dataset.name.ilike(name.strip()),
     )
 
     if exclude_dataset_id is not None:
-        query = query.filter(Dataset.id != exclude_dataset_id)
+        query = query.filter(
+            Dataset.id != exclude_dataset_id
+        )
 
-    if query.first() is not None:
+    if query.first():
         raise HTTPException(
             status_code=409,
-            detail="A dataset with this name already exists in this organization.",
+            detail="Dataset name already exists in this organization",
         )
 
 
-@router.get("", response_model=DatasetListResponse)
+# ==================================================
+# GET ALL DATASETS
+# ==================================================
+
+@router.get("/", response_model=DatasetListResponse)
 def get_datasets(
-    search: str | None = Query(default=None, max_length=255),
-    status: str | None = Query(default=None),
-    source_type: str | None = Query(default=None),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=10, ge=1, le=100),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    organization_id: int | None = Query(None),
+    status: str | None = Query(None),
+    search: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     query = db.query(Dataset)
 
-    if search and search.strip():
+    if organization_id is not None:
         query = query.filter(
-            Dataset.name.ilike(f"%{search.strip()}%")
+            Dataset.organization_id == organization_id
         )
 
     if status:
-        normalized_status = status.strip().lower()
+        allowed_statuses = {
+            "pending",
+            "processing",
+            "completed",
+            "failed",
+        }
 
-        if normalized_status not in ALLOWED_STATUSES:
+        if status not in allowed_statuses:
             raise HTTPException(
                 status_code=422,
-                detail="Invalid status filter.",
+                detail="Invalid dataset status",
             )
 
         query = query.filter(
-            func.lower(Dataset.status) == normalized_status
-        )
+            Dataset.status == status
+    )
 
-    if source_type and source_type.strip():
+    if search:
         query = query.filter(
-            func.lower(Dataset.source_type) == source_type.strip().lower()
+            Dataset.name.ilike(f"%{search}%")
         )
 
     total = query.count()
 
-    items = (
-        query.order_by(Dataset.id.desc())
+    datasets = (
+        query
+        .order_by(Dataset.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
 
+    total_pages = (
+        (total + page_size - 1) // page_size
+        if total
+        else 0
+    )
+
     return {
-        "items": items,
+        "items": datasets,
         "total": total,
         "page": page,
         "page_size": page_size,
-        "total_pages": ceil(total / page_size) if total else 0,
+        "total_pages": total_pages,
     }
 
 
-@router.post("", response_model=DatasetRead, status_code=201)
+# ==================================================
+# CREATE DATASET
+# ==================================================
+
+@router.post(
+    "/",
+    response_model=DatasetRead,
+    status_code=201,
+)
 def create_dataset(
     payload: DatasetCreate,
     db: Session = Depends(get_db),
 ):
-    organization_id = payload.organization_id
-    name = payload.name.strip()
-
-    if not name:
-        raise HTTPException(
-            status_code=422,
-            detail="Dataset name cannot be empty.",
-        )
-
-    validate_organization(organization_id, db)
-    ensure_unique_name(organization_id, name, db)
-
-    dataset = Dataset(
-        organization_id=organization_id,
-        name=name,
-        description=payload.description,
-        source_type=payload.source_type,
-        status="pending",
+    validate_organization(
+        payload.organization_id,
+        db,
     )
+
+    ensure_unique_name(
+        payload.name,
+        payload.organization_id,
+        db,
+    )
+
+    dataset = Dataset(**payload.model_dump())
 
     try:
         db.add(dataset)
         db.commit()
         db.refresh(dataset)
+
         return dataset
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=409,
-            detail="Dataset could not be created because of a database constraint.",
+            detail="Dataset already exists or database constraint failed",
+        )
+
+    except SQLAlchemyError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create dataset",
         )
 
 
-@router.get("/{dataset_id}", response_model=DatasetRead)
+# ==================================================
+# GET DATASET BY ID
+# ==================================================
+
+@router.get(
+    "/{dataset_id}",
+    response_model=DatasetRead,
+)
 def get_dataset(
     dataset_id: int,
     db: Session = Depends(get_db),
 ):
-    return get_dataset_or_404(dataset_id, db)
+    return get_dataset_or_404(
+        dataset_id,
+        db,
+    )
 
 
-@router.patch("/{dataset_id}", response_model=DatasetRead)
+# ==================================================
+# UPDATE DATASET
+# ==================================================
+
+@router.patch(
+    "/{dataset_id}",
+    response_model=DatasetRead,
+)
 def update_dataset(
     dataset_id: int,
     payload: DatasetUpdate,
     db: Session = Depends(get_db),
 ):
-    dataset = get_dataset_or_404(dataset_id, db)
-
-    updates = payload.model_dump(exclude_unset=True)
-
-    if not updates:
-        raise HTTPException(
-            status_code=422,
-            detail="Provide at least one field to update.",
-        )
-
-    if "organization_id" in updates:
-        if updates["organization_id"] is None:
-            raise HTTPException(
-                status_code=422,
-                detail="organization_id cannot be null.",
-            )
-
-        validate_organization(updates["organization_id"], db)
-
-    if "name" in updates:
-        if updates["name"] is None or not updates["name"].strip():
-            raise HTTPException(
-                status_code=422,
-                detail="Dataset name cannot be empty.",
-            )
-
-        updates["name"] = updates["name"].strip()
-
-    if "description" in updates and updates["description"] is not None:
-        updates["description"] = updates["description"].strip()
-
-    new_organization_id = updates.get(
-        "organization_id", dataset.organization_id
+    dataset = get_dataset_or_404(
+        dataset_id,
+        db,
     )
-    new_name = updates.get("name", dataset.name)
 
-    if "name" in updates or "organization_id" in updates:
-        ensure_unique_name(
+    update_data = payload.model_dump(
+        exclude_unset=True
+    )
+
+    new_name = update_data.get(
+        "name",
+        dataset.name,
+    )
+
+    new_organization_id = update_data.get(
+        "organization_id",
+        dataset.organization_id,
+    )
+
+    if new_organization_id != dataset.organization_id:
+        validate_organization(
             new_organization_id,
-            new_name,
             db,
-            exclude_dataset_id=dataset.id,
         )
 
-    for field, value in updates.items():
-        setattr(dataset, field, value)
+    if (
+        new_name != dataset.name
+        or new_organization_id != dataset.organization_id
+    ):
+        ensure_unique_name(
+            new_name,
+            new_organization_id,
+            db,
+            exclude_dataset_id=dataset_id,
+        )
+
+    for key, value in update_data.items():
+        setattr(dataset, key, value)
 
     try:
         db.commit()
         db.refresh(dataset)
+
         return dataset
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=409,
-            detail="Dataset could not be updated because of a database constraint.",
+            detail="Dataset update conflicts with existing data",
+        )
+
+    except SQLAlchemyError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update dataset",
         )
 
 
-@router.delete("/{dataset_id}", status_code=204)
+# ==================================================
+# DELETE DATASET
+# ==================================================
+
+@router.delete(
+    "/{dataset_id}",
+    status_code=204,
+)
 def delete_dataset(
     dataset_id: int,
     db: Session = Depends(get_db),
 ):
-    dataset = get_dataset_or_404(dataset_id, db)
+    dataset = get_dataset_or_404(
+        dataset_id,
+        db,
+    )
 
     try:
         db.delete(dataset)
         db.commit()
+
+        return Response(status_code=204)
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Dataset cannot be deleted because related records "
-                "or database constraints prevent deletion."
-            ),
-        )
-    except SQLAlchemyError:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="A database error occurred while deleting the dataset.",
+            detail="Dataset cannot be deleted because related records exist",
         )
 
-    return Response(status_code=204)
+    except SQLAlchemyError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete dataset",
+        )
+
+
+# ==================================================
+# UPLOAD CSV FILE
+# ==================================================
+
+@router.post("/{dataset_id}/upload")
+async def upload_dataset_csv(
+    dataset_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    dataset = get_dataset_or_404(
+        dataset_id,
+        db,
+    )
+
+    if (
+        not file.filename
+        or Path(file.filename).suffix.lower() != ".csv"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Only CSV files are supported",
+        )
+
+    UPLOAD_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    safe_filename = (
+        f"dataset_{dataset_id}_{uuid4().hex}.csv"
+    )
+
+    file_path = UPLOAD_DIR / safe_filename
+
+    total_size = 0
+    upload_saved = False
+
+    try:
+        with file_path.open("wb") as output_file:
+
+            while True:
+                chunk = await file.read(
+                    1024 * 1024
+                )
+
+                if not chunk:
+                    break
+
+                total_size += len(chunk)
+
+                if total_size > MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="CSV file size must not exceed 10 MB",
+                    )
+
+                output_file.write(chunk)
+
+        if total_size == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded CSV file is empty",
+            )
+
+        csv_data = process_csv(
+            str(file_path)
+        )
+
+        old_file_path = dataset.uploaded_file_path
+
+        dataset.uploaded_file_path = str(
+            file_path.resolve()
+        )
+
+        dataset.uploaded_filename = Path(
+            file.filename
+        ).name
+
+        dataset.uploaded_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(dataset)
+
+        upload_saved = True
+
+        if old_file_path:
+            old_path = Path(
+                old_file_path
+            ).resolve()
+
+            if (
+                old_path.parent == UPLOAD_DIR.resolve()
+                and old_path != file_path.resolve()
+                and old_path.is_file()
+            ):
+                old_path.unlink()
+
+        return {
+            "message": "CSV uploaded successfully",
+            "dataset_id": dataset.id,
+            "filename": dataset.uploaded_filename,
+            "file_size": total_size,
+            "columns": csv_data["columns"],
+            "total_rows": csv_data["total_rows"],
+            "uploaded_at": dataset.uploaded_at,
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except (
+        ValueError,
+        UnicodeDecodeError,
+        csv.Error,
+    ) as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid CSV file: {exc}",
+        )
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="CSV upload failed",
+        )
+
+    finally:
+        await file.close()
+
+        if not upload_saved and file_path.exists():
+            file_path.unlink(missing_ok=True)
+
+
+# ==================================================
+# EXECUTE CSV VALIDATION
+# ==================================================
+
+@router.post("/{dataset_id}/execute")
+def execute_dataset_validation(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+):
+    dataset = get_dataset_or_404(
+        dataset_id,
+        db,
+    )
+
+    if not dataset.uploaded_file_path:
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a CSV file before execution",
+        )
+
+    file_path = Path(
+        dataset.uploaded_file_path
+    )
+
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Uploaded CSV file not found",
+        )
+
+    try:
+        result = execute_csv_validation(
+            db=db,
+            dataset_id=dataset_id,
+            file_path=str(file_path),
+        )
+
+        return result
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="CSV validation execution failed",
+        )

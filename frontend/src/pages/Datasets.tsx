@@ -14,6 +14,13 @@ import {
   updateDataset,
   getOrganizations,
   deleteDataset,
+  uploadDatasetCSV,
+  executeDatasetValidation,
+} from "../services/api";
+
+import type {
+  CSVUploadResponse,
+  ExecuteValidationResponse,
 } from "../services/api";
 
 import type {
@@ -76,6 +83,16 @@ export default function Datasets() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingDataset, setEditingDataset] = useState<Dataset | null>(null);
   const [viewingDataset, setViewingDataset] = useState<Dataset | null>(null);
+
+  // CSV upload and validation execution state
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadingDataset, setUploadingDataset] = useState<Dataset | null>(null);
+  const [selectedCSVFile, setSelectedCSVFile] = useState<File | null>(null);
+  const [uploadingCSV, setUploadingCSV] = useState(false);
+  const [executingValidation, setExecutingValidation] = useState(false);
+  const [csvUploadResult, setCsvUploadResult] = useState<CSVUploadResponse | null>(null);
+  const [validationResult, setValidationResult] = useState<ExecuteValidationResponse | null>(null);
+  const [uploadError, setUploadError] = useState("");
 
   const [form, setForm] = useState<DatasetForm>(initialForm);
   const [fieldErrors, setFieldErrors] = useState<
@@ -336,6 +353,83 @@ export default function Datasets() {
     setDatasetToDelete(dataset);
   }
 
+  function openUploadModal(dataset: Dataset) {
+    setUploadingDataset(dataset);
+    setSelectedCSVFile(null);
+    setCsvUploadResult(null);
+    setValidationResult(null);
+    setUploadError("");
+    setUploadModalOpen(true);
+  }
+
+  function closeUploadModal() {
+    if (uploadingCSV || executingValidation) return;
+    setUploadModalOpen(false);
+    setUploadingDataset(null);
+    setSelectedCSVFile(null);
+    setCsvUploadResult(null);
+    setValidationResult(null);
+    setUploadError("");
+  }
+
+  async function handleCSVUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!uploadingDataset || !selectedCSVFile) {
+      setUploadError("Please choose a CSV file first.");
+      return;
+    }
+
+    if (!selectedCSVFile.name.toLowerCase().endsWith(".csv")) {
+      setUploadError("Only .csv files are supported.");
+      return;
+    }
+
+    if (selectedCSVFile.size > 10 * 1024 * 1024) {
+      setUploadError("File size must be 10 MB or less.");
+      return;
+    }
+
+    try {
+      setUploadingCSV(true);
+      setUploadError("");
+      setValidationResult(null);
+
+      const result = await uploadDatasetCSV(uploadingDataset.id, selectedCSVFile);
+      setCsvUploadResult(result);
+      setToast({
+        message: "CSV uploaded successfully.",
+        type: "success",
+      });
+    } catch (error) {
+      console.error("CSV upload failed:", error);
+      setUploadError("CSV upload failed. Please check the file and try again.");
+    } finally {
+      setUploadingCSV(false);
+    }
+  }
+
+  async function handleExecuteValidation() {
+    if (!uploadingDataset) return;
+
+    try {
+      setExecutingValidation(true);
+      setUploadError("");
+
+      const result = await executeDatasetValidation(uploadingDataset.id);
+      setValidationResult(result);
+      setToast({
+        message: `Validation ${result.status}.`,
+        type: result.status.toLowerCase() === "completed" ? "success" : "error",
+      });
+    } catch (error) {
+      console.error("Validation execution failed:", error);
+      setUploadError("Unable to execute validation. Please upload a CSV and try again.");
+    } finally {
+      setExecutingValidation(false);
+    }
+  }
+
   async function confirmDelete() {
     if (!datasetToDelete) return;
 
@@ -565,6 +659,14 @@ export default function Datasets() {
                         </td>
                         <td className="px-5 py-4 text-center">
                           <div className="inline-flex items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openUploadModal(dataset)}
+                              title="Upload CSV and run validation"
+                              className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            >
+                              CSV / Validate
+                            </button>
                             <button
                               type="button"
                               onClick={() => void openDetails(dataset)}
@@ -966,12 +1068,254 @@ export default function Datasets() {
         </Modal>
       )}
 
+      {/* CSV upload and validation results modal */}
+      {uploadModalOpen && uploadingDataset && (
+        <Modal
+          isOpen={uploadModalOpen}
+          onClose={closeUploadModal}
+          title={`CSV Upload & Validation — ${uploadingDataset.name}`}
+          size="lg"
+        >
+          <div className="max-h-[75vh] space-y-5 overflow-y-auto">
+            <form onSubmit={handleCSVUpload} className="space-y-3">
+              <div>
+                <label
+                  htmlFor="dataset-csv-file"
+                  className="mb-1 block text-sm font-medium text-gray-700"
+                >
+                  Select CSV file
+                </label>
+                <input
+                  id="dataset-csv-file"
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) => {
+                    setSelectedCSVFile(event.target.files?.[0] ?? null);
+                    setUploadError("");
+                    setValidationResult(null);
+                  }}
+                  disabled={uploadingCSV || executingValidation}
+                  className="block w-full rounded-lg border border-gray-300 p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-blue-700"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  CSV format only. Maximum file size: 10 MB.
+                </p>
+              </div>
+
+              {selectedCSVFile && (
+                <p className="text-sm text-gray-600">
+                  Selected: <strong>{selectedCSVFile.name}</strong>
+                  {" "}({(selectedCSVFile.size / 1024).toFixed(1)} KB)
+                </p>
+              )}
+
+              {uploadError && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                >
+                  {uploadError}
+                </div>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="submit"
+                  disabled={!selectedCSVFile || uploadingCSV || executingValidation}
+                >
+                  {uploadingCSV ? "Uploading..." : "Upload CSV"}
+                </Button>
+              </div>
+            </form>
+
+            {csvUploadResult && (
+              <div className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-4">
+                <h3 className="font-semibold text-green-800">
+                  {csvUploadResult.message}
+                </h3>
+                <p className="text-sm text-green-800">
+                  File: {csvUploadResult.filename}
+                </p>
+                <p className="text-sm text-green-800">
+                  Rows: {csvUploadResult.total_rows} · Size:{" "}
+                  {(csvUploadResult.file_size / 1024).toFixed(1)} KB
+                </p>
+                <p className="text-sm text-green-800">
+                  Columns: {csvUploadResult.columns.join(", ")}
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-4">
+              <div>
+                <h3 className="font-semibold text-gray-900">Run validation</h3>
+                <p className="text-xs text-gray-500">
+                  Executes the active validation rules for this dataset.
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={() => void handleExecuteValidation()}
+                disabled={executingValidation || uploadingCSV}
+              >
+                {executingValidation ? "Executing..." : "Execute Validation"}
+              </Button>
+            </div>
+
+            {validationResult && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-500">Quality score</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {Number(validationResult.quality_score).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-500">Records processed</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {validationResult.records_processed}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-500">Rules executed</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {validationResult.total_rules_executed}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-500">Passed checks</p>
+                    <p className="text-2xl font-bold text-green-700">
+                      {validationResult.passed_checks}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-500">Failed checks</p>
+                    <p className="text-2xl font-bold text-red-700">
+                      {validationResult.failed_checks}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-500">Run status</p>
+                    <p className="mt-1 font-semibold capitalize text-gray-900">
+                      {validationResult.status}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-gray-500">
+                  Processing Run ID: #{validationResult.processing_run_id}
+                </p>
+
+                <div>
+                  <h3 className="mb-2 font-semibold text-gray-900">
+                    Validation results
+                  </h3>
+                  {validationResult.results.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      No validation results were returned.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-gray-200">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                          <tr>
+                            <th className="px-3 py-2">Rule ID</th>
+                            <th className="px-3 py-2">Column</th>
+                            <th className="px-3 py-2">Checked</th>
+                            <th className="px-3 py-2">Passed</th>
+                            <th className="px-3 py-2">Failed</th>
+                            <th className="px-3 py-2">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {validationResult.results.map((item, index) => (
+                            <tr key={`${item.rule_id}-${index}`}>
+                              <td className="px-3 py-2">{item.rule_id}</td>
+                              <td className="px-3 py-2">
+                                {item.column_name ?? "—"}
+                              </td>
+                              <td className="px-3 py-2">{item.total_checked}</td>
+                              <td className="px-3 py-2 text-green-700">
+                                {item.passed_count}
+                              </td>
+                              <td className="px-3 py-2 text-red-700">
+                                {item.failed_count}
+                              </td>
+                              <td className="px-3 py-2 capitalize">
+                                {item.status}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="mb-2 font-semibold text-gray-900">
+                    Failed validation issues ({validationResult.issues.length})
+                  </h3>
+                  {validationResult.issues.length === 0 ? (
+                    <p className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
+                      No validation issues found.
+                    </p>
+                  ) : (
+                    <div className="max-h-64 overflow-auto rounded-lg border border-gray-200">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="sticky top-0 bg-gray-50 text-xs uppercase text-gray-500">
+                          <tr>
+                            <th className="px-3 py-2">Row</th>
+                            <th className="px-3 py-2">Rule ID</th>
+                            <th className="px-3 py-2">Column</th>
+                            <th className="px-3 py-2">Invalid value</th>
+                            <th className="px-3 py-2">Error</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {validationResult.issues.map((issue, index) => (
+                            <tr key={`${issue.rule_id}-${issue.row_number}-${index}`}>
+                              <td className="px-3 py-2">{issue.row_number}</td>
+                              <td className="px-3 py-2">{issue.rule_id}</td>
+                              <td className="px-3 py-2">{issue.column_name}</td>
+                              <td className="max-w-32 truncate px-3 py-2">
+                                {issue.invalid_value ?? "—"}
+                              </td>
+                              <td className="min-w-48 px-3 py-2 text-red-700">
+                                {issue.error_description}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end border-t border-gray-100 pt-3">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={closeUploadModal}
+                disabled={uploadingCSV || executingValidation}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* Dataset details modal */}
       {viewingDataset && (
         <Modal
           isOpen={Boolean(viewingDataset)}
           onClose={() => setViewingDataset(null)}
           title="Dataset Details"
+          size="lg"
         >
           <div className="space-y-4">
             <DetailRow label="Dataset ID" value={String(viewingDataset.id)} />
