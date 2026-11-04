@@ -1,0 +1,6 @@
+id,name,email,age
+1,Arun,arun@gmail.com,25
+2,Kumar,kumar@gmail.com,30
+3,Test,invalid-email,17
+4,,test@gmail.com,45
+5,Arun,arun@gmail.com,60
