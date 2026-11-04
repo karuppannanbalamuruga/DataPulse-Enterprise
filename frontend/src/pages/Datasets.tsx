@@ -86,12 +86,16 @@ export default function Datasets() {
 
   // CSV upload and validation execution state
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [uploadingDataset, setUploadingDataset] = useState<Dataset | null>(null);
+  const [uploadingDataset, setUploadingDataset] = useState<Dataset | null>(
+    null,
+  );
   const [selectedCSVFile, setSelectedCSVFile] = useState<File | null>(null);
   const [uploadingCSV, setUploadingCSV] = useState(false);
   const [executingValidation, setExecutingValidation] = useState(false);
-  const [csvUploadResult, setCsvUploadResult] = useState<CSVUploadResponse | null>(null);
-  const [validationResult, setValidationResult] = useState<ExecuteValidationResponse | null>(null);
+  const [csvUploadResult, setCsvUploadResult] =
+    useState<CSVUploadResponse | null>(null);
+  const [validationResult, setValidationResult] =
+    useState<ExecuteValidationResponse | null>(null);
   const [uploadError, setUploadError] = useState("");
 
   const [form, setForm] = useState<DatasetForm>(initialForm);
@@ -395,7 +399,10 @@ export default function Datasets() {
       setUploadError("");
       setValidationResult(null);
 
-      const result = await uploadDatasetCSV(uploadingDataset.id, selectedCSVFile);
+      const result = await uploadDatasetCSV(
+        uploadingDataset.id,
+        selectedCSVFile,
+      );
       setCsvUploadResult(result);
       setToast({
         message: "CSV uploaded successfully.",
@@ -424,7 +431,9 @@ export default function Datasets() {
       });
     } catch (error) {
       console.error("Validation execution failed:", error);
-      setUploadError("Unable to execute validation. Please upload a CSV and try again.");
+      setUploadError(
+        "Unable to execute validation. Please upload a CSV and try again.",
+      );
     } finally {
       setExecutingValidation(false);
     }
@@ -467,8 +476,7 @@ export default function Datasets() {
       <div className="space-y-6">
         {/* Page heading */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-          </div>
+          <div></div>
 
           <Button onClick={openCreateModal}>+ Create Dataset</Button>
         </div>
@@ -659,14 +667,42 @@ export default function Datasets() {
                         </td>
                         <td className="px-5 py-4 text-center">
                           <div className="inline-flex items-center justify-center gap-2">
-                            <button
+                            {/* <button
                               type="button"
                               onClick={() => openUploadModal(dataset)}
                               title="Upload CSV and run validation"
                               className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"
                             >
                               CSV / Validate
+                            </button> */}
+
+                            <button
+                              type="button"
+                              onClick={() => openUploadModal(dataset)}
+                              title="Upload CSV and run validation"
+                              aria-label="Upload CSV and validate dataset"
+                              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-semibold text-emerald-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-md hover:shadow-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="17"
+                                height="17"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M12 16V4" />
+                                <path d="m7 9 5-5 5 5" />
+                                <path d="M20 16.5v2A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5v-2" />
+                              </svg>
+
+                              <span className="font-sm">CSV / Validate</span>
                             </button>
+
                             <button
                               type="button"
                               onClick={() => void openDetails(dataset)}
@@ -1042,7 +1078,8 @@ export default function Datasets() {
                   Are you sure you want to delete “{datasetToDelete.name}”?
                 </p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
-                  This action cannot be undone. Related processing runs and validation rules may also be deleted.
+                  This action cannot be undone. Related processing runs and
+                  validation rules may also be deleted.
                 </p>
               </div>
             </div>
@@ -1061,7 +1098,9 @@ export default function Datasets() {
                 disabled={deletingId !== null}
                 className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deletingId === datasetToDelete.id ? "Deleting..." : "Delete Dataset"}
+                {deletingId === datasetToDelete.id
+                  ? "Deleting..."
+                  : "Delete Dataset"}
               </button>
             </div>
           </div>
@@ -1104,8 +1143,8 @@ export default function Datasets() {
 
               {selectedCSVFile && (
                 <p className="text-sm text-gray-600">
-                  Selected: <strong>{selectedCSVFile.name}</strong>
-                  {" "}({(selectedCSVFile.size / 1024).toFixed(1)} KB)
+                  Selected: <strong>{selectedCSVFile.name}</strong> (
+                  {(selectedCSVFile.size / 1024).toFixed(1)} KB)
                 </p>
               )}
 
@@ -1121,7 +1160,9 @@ export default function Datasets() {
               <div className="flex flex-wrap justify-end gap-2">
                 <Button
                   type="submit"
-                  disabled={!selectedCSVFile || uploadingCSV || executingValidation}
+                  disabled={
+                    !selectedCSVFile || uploadingCSV || executingValidation
+                  }
                 >
                   {uploadingCSV ? "Uploading..." : "Upload CSV"}
                 </Button>
@@ -1235,7 +1276,9 @@ export default function Datasets() {
                               <td className="px-3 py-2">
                                 {item.column_name ?? "—"}
                               </td>
-                              <td className="px-3 py-2">{item.total_checked}</td>
+                              <td className="px-3 py-2">
+                                {item.total_checked}
+                              </td>
                               <td className="px-3 py-2 text-green-700">
                                 {item.passed_count}
                               </td>
@@ -1275,7 +1318,9 @@ export default function Datasets() {
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                           {validationResult.issues.map((issue, index) => (
-                            <tr key={`${issue.rule_id}-${issue.row_number}-${index}`}>
+                            <tr
+                              key={`${issue.rule_id}-${issue.row_number}-${index}`}
+                            >
                               <td className="px-3 py-2">{issue.row_number}</td>
                               <td className="px-3 py-2">{issue.rule_id}</td>
                               <td className="px-3 py-2">{issue.column_name}</td>
