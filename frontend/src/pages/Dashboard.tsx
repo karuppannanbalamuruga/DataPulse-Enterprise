@@ -17,6 +17,7 @@ import {
   getProcessingRuns,
   getFailedProcessingRuns,
   getQualitySummary,
+  getProcessingRunsSummary,
 } from "../services/api";
 
 import type { QualitySummary } from "../services/api";
@@ -26,6 +27,9 @@ export default function Dashboard() {
   const [runs, setRuns] = useState<ProcessingRun[]>([]);
   const [qualitySummary, setQualitySummary] =
     useState<QualitySummary | null>(null);
+  const [monitoringSummary, setMonitoringSummary] = useState<
+    Awaited<ReturnType<typeof getProcessingRunsSummary>> | null
+  >(null);
 
   const [totalDatasets, setTotalDatasets] = useState(0);
   const [totalRules, setTotalRules] = useState(0);
@@ -76,6 +80,15 @@ export default function Dashboard() {
         setTotalRuns(runData.total);
         setFailedRuns(failedRunData.total);
         setTotalPages(runData.total_pages);
+
+        // Load Task 5 error-monitoring statistics independently.
+        const monitoringData = await getProcessingRunsSummary().catch(
+          (monitoringError) => {
+            console.error("Error Monitoring API error:", monitoringError);
+            return null;
+          }
+        );
+        setMonitoringSummary(monitoringData);
 
         // Get quality summary for latest available dataset
         const datasetId =
@@ -666,6 +679,147 @@ export default function Dashboard() {
                 </div>
               </div>
             </>
+          )}
+        </section>
+
+        {/* TASK 5: ERROR MONITORING */}
+        <section className="space-y-5 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900">
+                Error Monitoring Overview
+              </h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Processing failures and validation issues from persisted records
+              </p>
+            </div>
+            <span className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700">
+              {monitoringSummary?.processing_runs.failed ?? failedRuns} Failed Runs
+            </span>
+          </div>
+
+          {monitoringSummary ? (
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500">Total Validation Failures</p>
+                  <p className="mt-2 text-2xl font-extrabold text-slate-900">
+                    {monitoringSummary.validation.total_failures.toLocaleString()}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500">Unresolved Errors</p>
+                  <p className="mt-2 text-2xl font-extrabold text-rose-600">
+                    {monitoringSummary.error_monitoring.unresolved_errors.toLocaleString()}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500">Completed Runs</p>
+                  <p className="mt-2 text-2xl font-extrabold text-emerald-600">
+                    {monitoringSummary.processing_runs.completed.toLocaleString()}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500">Failed Runs</p>
+                  <p className="mt-2 text-2xl font-extrabold text-rose-600">
+                    {monitoringSummary.processing_runs.failed.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <div className="rounded-xl border border-slate-100 p-4">
+                  <h3 className="mb-4 text-sm font-bold text-slate-800">Error Severity Distribution</h3>
+                  <div className="space-y-3">
+                    {(["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((severity) => {
+                      const count = monitoringSummary.error_monitoring.severity_distribution[severity] ?? 0;
+                      const totalErrors = Object.values(monitoringSummary.error_monitoring.severity_distribution).reduce((sum, value) => sum + value, 0);
+                      const width = totalErrors > 0 ? (count / totalErrors) * 100 : 0;
+                      const barColor = severity === "CRITICAL" ? "bg-red-600" : severity === "HIGH" ? "bg-orange-500" : severity === "MEDIUM" ? "bg-amber-500" : "bg-blue-500";
+                      return (
+                        <div key={severity}>
+                          <div className="mb-1 flex items-center justify-between text-xs">
+                            <span className="font-medium text-slate-600">{severity}</span>
+                            <span className="font-bold text-slate-800">{count}</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div className={`h-full rounded-full ${barColor}`} style={{ width: `${width}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-100 p-4">
+                  <h3 className="mb-4 text-sm font-bold text-slate-800">Frequent Failing Rules</h3>
+                  {monitoringSummary.frequent_failing_rules.length > 0 ? (
+                    <div className="space-y-3">
+                      {monitoringSummary.frequent_failing_rules.map((rule) => (
+                        <div key={rule.rule_id} className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 last:border-0">
+                          <span className="min-w-0 truncate text-xs text-slate-600">{rule.rule_name}</span>
+                          <span className="shrink-0 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700">
+                            {rule.failure_count} failures
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">No validation failures recorded.</p>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-slate-100 p-4">
+                  <h3 className="mb-4 text-sm font-bold text-slate-800">Recurring Error Datasets</h3>
+                  {monitoringSummary.error_monitoring.recurring_error_datasets.length > 0 ? (
+                    <div className="space-y-3">
+                      {monitoringSummary.error_monitoring.recurring_error_datasets.map((dataset) => (
+                        <div key={dataset.dataset_id} className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 last:border-0">
+                          <span className="min-w-0 truncate text-xs text-slate-600">
+                            {dataset.dataset_name} (#{dataset.dataset_id})
+                          </span>
+                          <span className="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">
+                            {dataset.error_count} errors
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">No recurring error datasets recorded.</p>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-slate-100 p-4">
+                  <h3 className="mb-4 text-sm font-bold text-slate-800">Run Status Summary</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg bg-emerald-50 p-3">
+                      <p className="text-xs text-emerald-700">Completed</p>
+                      <p className="mt-1 text-xl font-extrabold text-emerald-800">{monitoringSummary.processing_runs.completed}</p>
+                    </div>
+                    <div className="rounded-lg bg-rose-50 p-3">
+                      <p className="text-xs text-rose-700">Failed</p>
+                      <p className="mt-1 text-xl font-extrabold text-rose-800">{monitoringSummary.processing_runs.failed}</p>
+                    </div>
+                    <div className="rounded-lg bg-amber-50 p-3">
+                      <p className="text-xs text-amber-700">Pending</p>
+                      <p className="mt-1 text-xl font-extrabold text-amber-800">{monitoringSummary.processing_runs.pending}</p>
+                    </div>
+                    <div className="rounded-lg bg-blue-50 p-3">
+                      <p className="text-xs text-blue-700">Processing</p>
+                      <p className="mt-1 text-xl font-extrabold text-blue-800">{monitoringSummary.processing_runs.processing}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-xl bg-slate-50 p-5 text-center">
+              <p className="text-sm font-semibold text-slate-700">Error monitoring summary unavailable</p>
+              <p className="mt-1 text-xs text-slate-500">Check the processing-runs summary API and refresh the dashboard.</p>
+              <Button className="mt-3" variant="secondary" disabled={refreshing} onClick={() => void loadDashboard(true)}>
+                {refreshing ? "Refreshing..." : "Refresh Dashboard"}
+              </Button>
+            </div>
           )}
         </section>
 

@@ -1,6 +1,8 @@
 
+import csv
 from datetime import datetime
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.dataset import Dataset
@@ -14,6 +16,34 @@ from app.services.validation_engine import (
     execute_validation_rules,
     calculate_quality_score,
 )
+from app.services.monitoring_service import (
+    create_execution_log,
+    create_error_record,
+)
+
+
+def classify_error(exc, stage):
+    if isinstance(exc, SQLAlchemyError):
+        return "DATABASE", "CRITICAL", "Database operation failed"
+
+    if isinstance(exc, (FileNotFoundError, UnicodeDecodeError, csv.Error)):
+        return "FILE_PARSING", "HIGH", "CSV file processing failed"
+
+    if isinstance(exc, ValueError):
+        if stage == "VALIDATION_EXECUTION":
+            return (
+                "VALIDATION_EXECUTION",
+                "HIGH",
+                "Validation execution failed",
+            )
+
+        return (
+            "DATASET_CONFIGURATION",
+            "MEDIUM",
+            "Dataset or execution configuration is invalid",
+        )
+
+    return "SYSTEM", "CRITICAL", "Unexpected processing error"
 
 
 def execute_csv_validation(
@@ -23,17 +53,18 @@ def execute_csv_validation(
     rule_ids: list[int] | None = None,
 ):
     run = None
+    stage = "RUN_START"
 
     try:
-        # 1. Check dataset
-        dataset = db.query(Dataset).filter(
-            Dataset.id == dataset_id
-        ).first()
+        dataset = (
+            db.query(Dataset)
+            .filter(Dataset.id == dataset_id)
+            .first()
+        )
 
         if not dataset:
             raise ValueError("Dataset not found")
 
-        # 2. Create processing run
         run = ProcessingRun(
             dataset_id=dataset_id,
             status="processing",
@@ -48,13 +79,38 @@ def execute_csv_validation(
         db.add(run)
         db.flush()
 
-        # 3. Process CSV
+        create_execution_log(
+            db,
+            run.id,
+            dataset_id,
+            "INFO",
+            "RUN_START",
+            "Processing run started",
+        )
+
+        # Commit the run separately so failures can be recorded.
+        db.commit()
+        db.refresh(run)
+
+        stage = "CSV_PROCESSING"
+
+        create_execution_log(
+            db,
+            run.id,
+            dataset_id,
+            "INFO",
+            stage,
+            "CSV processing started",
+        )
+        db.commit()
+
         csv_data = process_csv(file_path)
         rows = csv_data["rows"]
 
         run.records_processed = csv_data["total_rows"]
 
-        # 4. Fetch active validation rules
+        stage = "RULE_LOADING"
+
         query = db.query(ValidationRule).filter(
             ValidationRule.dataset_id == dataset_id,
             ValidationRule.is_active.is_(True),
@@ -73,21 +129,25 @@ def execute_csv_validation(
 
         rules = query.all()
 
-        # 5. Validate requested rule IDs
-        if rule_ids is not None:
-            if len(rules) != len(rule_ids):
-                raise ValueError(
-                    "One or more rules are invalid, inactive, "
-                    "or belong to another dataset"
-                )
+        if rule_ids is not None and len(rules) != len(rule_ids):
+            raise ValueError(
+                "One or more rules are invalid, inactive, "
+                "or belong to another dataset"
+            )
 
-        # 6. Execute validation rules
-        output = execute_validation_rules(
-            rows,
-            rules
+        stage = "VALIDATION_EXECUTION"
+
+        create_execution_log(
+            db,
+            run.id,
+            dataset_id,
+            "INFO",
+            stage,
+            "Validation execution started",
         )
 
-        # 7. Save validation results
+        output = execute_validation_rules(rows, rules)
+
         for result in output["results"]:
             db.add(
                 ValidationResult(
@@ -101,7 +161,6 @@ def execute_csv_validation(
                 )
             )
 
-        # 8. Save validation issues
         for issue in output["issues"]:
             db.add(
                 ValidationIssue(
@@ -115,14 +174,12 @@ def execute_csv_validation(
                 )
             )
 
-        # 9. Calculate executed rules count
         run.total_rules_executed = sum(
             1
             for result in output["results"]
             if result["status"] == "completed"
         )
 
-        # 10. Calculate passed and failed checks
         run.passed_checks = sum(
             result["passed_count"]
             for result in output["results"]
@@ -133,16 +190,34 @@ def execute_csv_validation(
             for result in output["results"]
         )
 
-        # 11. Calculate quality score
         run.quality_score = calculate_quality_score(
             output["results"]
         )
 
-        # 12. Complete processing run
+        if run.failed_checks > 0:
+            create_execution_log(
+                db,
+                run.id,
+                dataset_id,
+                "WARNING",
+                "VALIDATION_RESULTS",
+                f"Validation completed with {run.failed_checks} failed checks",
+            )
+
+        stage = "RUN_COMPLETION"
+
         run.status = "completed"
         run.completed_at = datetime.utcnow()
 
-        # 13. Commit database transaction
+        create_execution_log(
+            db,
+            run.id,
+            dataset_id,
+            "INFO",
+            stage,
+            "Processing run completed successfully",
+        )
+
         db.commit()
         db.refresh(run)
 
@@ -162,16 +237,46 @@ def execute_csv_validation(
     except Exception as exc:
         db.rollback()
 
-        # Record failed processing run
-        if run is not None:
-            failed_run = db.query(ProcessingRun).filter(
-                ProcessingRun.id == run.id
-            ).first()
+        if run is not None and run.id is not None:
+            try:
+                failed_run = (
+                    db.query(ProcessingRun)
+                    .filter(ProcessingRun.id == run.id)
+                    .first()
+                )
 
-            if failed_run:
-                failed_run.status = "failed"
-                failed_run.error_message = str(exc)
-                failed_run.completed_at = datetime.utcnow()
-                db.commit()
+                if failed_run:
+                    category, severity, safe_message = classify_error(
+                        exc,
+                        stage,
+                    )
+
+                    failed_run.status = "failed"
+                    failed_run.error_message = safe_message
+                    failed_run.completed_at = datetime.utcnow()
+
+                    error_log = create_execution_log(
+                        db,
+                        failed_run.id,
+                        dataset_id,
+                        "ERROR",
+                        stage,
+                        safe_message,
+                    )
+
+                    create_error_record(
+                        db,
+                        failed_run.id,
+                        category,
+                        severity,
+                        safe_message,
+                        stage,
+                        execution_log_id=error_log.id,
+                    )
+
+                    db.commit()
+
+            except Exception:
+                db.rollback()
 
         raise

@@ -103,3 +103,15 @@ class ProcessingRun(Base):
         back_populates="processing_run",
         cascade="all, delete-orphan",
     )
+
+    execution_logs = relationship(
+        "ExecutionLog",
+        back_populates="processing_run",
+        cascade="all, delete-orphan",
+    )
+
+    error_records = relationship(
+        "ErrorRecord",
+        back_populates="processing_run",
+        cascade="all, delete-orphan",
+    )

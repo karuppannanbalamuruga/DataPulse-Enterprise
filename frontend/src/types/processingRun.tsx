@@ -9,8 +9,18 @@ export interface ProcessingRun {
   id: number;
   dataset_id: number;
   status: ProcessingRunStatus;
+
+  // Processing metrics
   records_processed: number;
+  total_rules_executed?: number;
+  passed_checks?: number;
+  failed_checks?: number;
+  quality_score?: number | null;
+
+  // Error details
   error_message?: string | null;
+
+  // Timestamps
   started_at?: string | null;
   completed_at?: string | null;
 }

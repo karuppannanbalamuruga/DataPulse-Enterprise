@@ -1,5 +1,6 @@
 
 from uuid import uuid4
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +14,8 @@ from app.api.routes.processing_runs import get_db
 from app.models.dataset import Dataset
 from app.models.processing_run import ProcessingRun
 from app.models.organization import Organization
+from app.models.execution_log import ExecutionLog
+from app.models.error_record import ErrorRecord
 
 
 # In-memory SQLite database for isolated automated tests
@@ -62,7 +65,6 @@ def dataset_id(client):
     try:
         unique_id = uuid4().hex[:8]
 
-        # Create Organization
         organization = Organization(
             name=f"Automation Test Organization {unique_id}",
             slug=f"automation-test-{unique_id}",
@@ -72,7 +74,6 @@ def dataset_id(client):
         db.commit()
         db.refresh(organization)
 
-        # Create Dataset linked to Organization
         dataset = Dataset(
             organization_id=organization.id,
             name=f"Automation Test Dataset {unique_id}",
@@ -90,12 +91,24 @@ def dataset_id(client):
         db.close()
 
 
-def test_get_processing_runs_returns_paginated_response(client, dataset_id):
-    create_response = client.post(
+def create_run(client, dataset_id):
+    """Create a processing run and return its ID."""
+    response = client.post(
         "/api/v1/processing-runs",
         params={"dataset_id": dataset_id},
     )
-    assert create_response.status_code == 201, create_response.text
+
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+# ---------------------------------------------------------
+# Existing Processing Run Tests
+# ---------------------------------------------------------
+
+
+def test_get_processing_runs_returns_paginated_response(client, dataset_id):
+    create_run(client, dataset_id)
 
     response = client.get("/api/v1/processing-runs")
 
@@ -112,13 +125,7 @@ def test_get_processing_runs_returns_paginated_response(client, dataset_id):
 
 
 def test_get_processing_run_by_id(client, dataset_id):
-    create_response = client.post(
-        "/api/v1/processing-runs",
-        params={"dataset_id": dataset_id},
-    )
-    assert create_response.status_code == 201, create_response.text
-
-    run_id = create_response.json()["id"]
+    run_id = create_run(client, dataset_id)
 
     response = client.get(f"/api/v1/processing-runs/{run_id}")
 
@@ -132,7 +139,6 @@ def test_get_processing_run_by_id(client, dataset_id):
 
 def test_get_missing_processing_run_returns_404(client):
     response = client.get("/api/v1/processing-runs/999999")
-
     assert response.status_code == 404
 
 
@@ -160,13 +166,7 @@ def test_create_processing_run_with_missing_dataset_returns_404(client):
 
 
 def test_patch_processing_run_updates_fields(client, dataset_id):
-    create_response = client.post(
-        "/api/v1/processing-runs",
-        params={"dataset_id": dataset_id},
-    )
-    assert create_response.status_code == 201, create_response.text
-
-    run_id = create_response.json()["id"]
+    run_id = create_run(client, dataset_id)
 
     response = client.patch(
         f"/api/v1/processing-runs/{run_id}",
@@ -185,13 +185,7 @@ def test_patch_processing_run_updates_fields(client, dataset_id):
 
 
 def test_patch_negative_records_is_rejected(client, dataset_id):
-    create_response = client.post(
-        "/api/v1/processing-runs",
-        params={"dataset_id": dataset_id},
-    )
-    assert create_response.status_code == 201, create_response.text
-
-    run_id = create_response.json()["id"]
+    run_id = create_run(client, dataset_id)
 
     response = client.patch(
         f"/api/v1/processing-runs/{run_id}",
@@ -202,13 +196,7 @@ def test_patch_negative_records_is_rejected(client, dataset_id):
 
 
 def test_patch_invalid_status_is_rejected(client, dataset_id):
-    create_response = client.post(
-        "/api/v1/processing-runs",
-        params={"dataset_id": dataset_id},
-    )
-    assert create_response.status_code == 201, create_response.text
-
-    run_id = create_response.json()["id"]
+    run_id = create_run(client, dataset_id)
 
     response = client.patch(
         f"/api/v1/processing-runs/{run_id}",
@@ -228,13 +216,7 @@ def test_patch_missing_processing_run_returns_404(client):
 
 
 def test_completed_run_cannot_be_updated(client, dataset_id):
-    create_response = client.post(
-        "/api/v1/processing-runs",
-        params={"dataset_id": dataset_id},
-    )
-    assert create_response.status_code == 201, create_response.text
-
-    run_id = create_response.json()["id"]
+    run_id = create_run(client, dataset_id)
 
     complete_response = client.patch(
         f"/api/v1/processing-runs/{run_id}",
@@ -252,3 +234,260 @@ def test_completed_run_cannot_be_updated(client, dataset_id):
     )
 
     assert update_response.status_code == 400
+
+
+# ---------------------------------------------------------
+# Task 5: Execution Logs API Tests
+# ---------------------------------------------------------
+
+
+def test_get_processing_run_logs_returns_empty_list(client, dataset_id):
+    run_id = create_run(client, dataset_id)
+
+    response = client.get(
+        f"/api/v1/processing-runs/{run_id}/logs"
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert data["items"] == []
+    assert data["total"] == 0
+    assert data["page"] == 1
+    assert data["total_pages"] == 0
+
+
+def test_get_processing_run_logs_returns_saved_logs(client, dataset_id):
+    run_id = create_run(client, dataset_id)
+
+    db = TestingSessionLocal()
+
+    try:
+        db.add_all([
+            ExecutionLog(
+                run_id=run_id,
+                dataset_id=dataset_id,
+                level="INFO",
+                stage="RUN_START",
+                message="Processing run started",
+                timestamp=datetime(2026, 11, 10, 10, 0, 0),
+            ),
+            ExecutionLog(
+                run_id=run_id,
+                dataset_id=dataset_id,
+                level="WARNING",
+                stage="VALIDATION_RESULTS",
+                message="Validation completed with failures",
+                timestamp=datetime(2026, 11, 10, 10, 1, 0),
+            ),
+            ExecutionLog(
+                run_id=run_id,
+                dataset_id=dataset_id,
+                level="ERROR",
+                stage="CSV_PROCESSING",
+                message="CSV processing failed",
+                timestamp=datetime(2026, 11, 10, 10, 2, 0),
+            ),
+        ])
+
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        f"/api/v1/processing-runs/{run_id}/logs"
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert data["total"] == 3
+    assert len(data["items"]) == 3
+    assert all(item["run_id"] == run_id for item in data["items"])
+
+
+def test_get_processing_run_logs_filters_by_level(client, dataset_id):
+    run_id = create_run(client, dataset_id)
+
+    db = TestingSessionLocal()
+
+    try:
+        db.add_all([
+            ExecutionLog(
+                run_id=run_id,
+                dataset_id=dataset_id,
+                level="INFO",
+                stage="RUN_START",
+                message="Run started",
+            ),
+            ExecutionLog(
+                run_id=run_id,
+                dataset_id=dataset_id,
+                level="ERROR",
+                stage="CSV_PROCESSING",
+                message="CSV processing failed",
+            ),
+        ])
+
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        f"/api/v1/processing-runs/{run_id}/logs",
+        params={"level": "ERROR"},
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert data["total"] == 1
+    assert all(item["level"] == "ERROR" for item in data["items"])
+
+
+def test_get_processing_run_logs_searches_message(client, dataset_id):
+    run_id = create_run(client, dataset_id)
+
+    db = TestingSessionLocal()
+
+    try:
+        db.add_all([
+            ExecutionLog(
+                run_id=run_id,
+                dataset_id=dataset_id,
+                level="INFO",
+                stage="RUN_START",
+                message="Processing started",
+            ),
+            ExecutionLog(
+                run_id=run_id,
+                dataset_id=dataset_id,
+                level="ERROR",
+                stage="CSV_PROCESSING",
+                message="CSV file parsing failed",
+            ),
+        ])
+
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        f"/api/v1/processing-runs/{run_id}/logs",
+        params={"search": "CSV file parsing"},
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert data["total"] == 1
+    assert "CSV file parsing" in data["items"][0]["message"]
+
+
+def test_get_logs_for_missing_processing_run_returns_404(client):
+    response = client.get(
+        "/api/v1/processing-runs/999999/logs"
+    )
+
+    assert response.status_code == 404
+
+
+# ---------------------------------------------------------
+# Task 5: Processing Runs Summary API Tests
+# ---------------------------------------------------------
+
+
+def test_processing_runs_summary_returns_expected_structure(client):
+    response = client.get(
+        "/api/v1/processing-runs/summary"
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert "processing_runs" in data
+    assert "validation" in data
+    assert "error_monitoring" in data
+    assert "frequent_failing_rules" in data
+
+    assert "total" in data["processing_runs"]
+    assert "completed" in data["processing_runs"]
+    assert "failed" in data["processing_runs"]
+
+    assert "total_failures" in data["validation"]
+
+    assert "severity_distribution" in data["error_monitoring"]
+    assert "unresolved_errors" in data["error_monitoring"]
+    assert "recurring_error_datasets" in data["error_monitoring"]
+
+
+def test_processing_runs_summary_counts_runs(client, dataset_id):
+    create_run(client, dataset_id)
+
+    response = client.get(
+        "/api/v1/processing-runs/summary"
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+
+    assert data["processing_runs"]["total"] == 1
+    assert data["processing_runs"]["pending"] == 1
+    assert data["processing_runs"]["completed"] == 0
+    assert data["processing_runs"]["failed"] == 0
+
+
+def test_processing_runs_summary_includes_error_severity(client, dataset_id):
+    run_id = create_run(client, dataset_id)
+
+    db = TestingSessionLocal()
+
+    try:
+        log = ExecutionLog(
+            run_id=run_id,
+            dataset_id=dataset_id,
+            level="ERROR",
+            stage="CSV_PROCESSING",
+            message="CSV parsing failed",
+        )
+
+        db.add(log)
+        db.flush()
+
+        error = ErrorRecord(
+            run_id=run_id,
+            execution_log_id=log.id,
+            category="FILE_PARSING",
+            severity="HIGH",
+            message="CSV file processing failed",
+            stage="CSV_PROCESSING",
+            is_resolved=False,
+        )
+
+        db.add(error)
+        db.commit()
+
+    finally:
+        db.close()
+
+    response = client.get(
+        "/api/v1/processing-runs/summary"
+    )
+
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+    monitoring = data["error_monitoring"]
+
+    assert monitoring["severity_distribution"]["HIGH"] == 1
+    assert monitoring["unresolved_errors"] == 1
+    assert len(monitoring["recurring_error_datasets"]) >= 1

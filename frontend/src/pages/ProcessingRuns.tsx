@@ -22,6 +22,7 @@ import type {
   ProcessingRunStatus,
 } from "../types/processingRun";
 import type { Dataset } from "../types/dataset";
+import ExecutionLogsViewer from "../components/common/ExecutionLogsViewer";
 
 const RUN_STATUSES: ProcessingRunStatus[] = [
   "pending",
@@ -346,6 +347,24 @@ export default function ProcessingRuns() {
     if (!value) return "—";
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  }
+
+  function formatDuration(startedAt?: string | null, completedAt?: string | null) {
+    if (!startedAt || !completedAt) return "—";
+
+    const start = new Date(startedAt).getTime();
+    const end = new Date(completedAt).getTime();
+    if (Number.isNaN(start) || Number.isNaN(end) || end < start) return "—";
+
+    const totalSeconds = Math.floor((end - start) / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+
+    if (hours > 0) return `${hours}h ${remainingMinutes}m ${seconds}s`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
   }
 
   const firstRecord = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -675,15 +694,41 @@ export default function ProcessingRuns() {
               label="Records Processed"
               value={viewRun.records_processed ?? 0}
             />
+            <Detail
+              label="Total Rules Executed"
+              value={viewRun.total_rules_executed ?? "—"}
+            />
+            <Detail
+              label="Passed Checks"
+              value={viewRun.passed_checks ?? "—"}
+            />
+            <Detail
+              label="Failed Checks"
+              value={viewRun.failed_checks ?? "—"}
+            />
+            <Detail
+              label="Quality Score"
+              value={viewRun.quality_score == null ? "—" : `${Number(viewRun.quality_score).toFixed(2)}%`}
+            />
             <Detail label="Started At" value={formatDate(viewRun.started_at)} />
             <Detail
               label="Completed At"
               value={formatDate(viewRun.completed_at)}
             />
             <Detail
+              label="Execution Duration"
+              value={formatDuration(viewRun.started_at, viewRun.completed_at)}
+            />
+            <Detail
               label="Error Message"
               value={viewRun.error_message || "—"}
             />
+
+            {/* Execution logs for this processing run */}
+            <div className="border-t border-slate-200 pt-4">
+              <ExecutionLogsViewer runId={viewRun.id} />
+            </div>
+
             <div className="flex justify-end pt-3">
               <Button variant="secondary" onClick={() => setViewRun(null)}>
                 Close

@@ -275,7 +275,119 @@ export const getFailedProcessingRuns = async (
 };
 
 // =====================================================
-// 5. QUALITY SUMMARY API
+// 5. EXECUTION LOGS API
+// =====================================================
+
+export type ExecutionLogLevel =
+  | "INFO"
+  | "WARNING"
+  | "ERROR"
+  | "DEBUG";
+
+export interface ExecutionLog {
+  id: number;
+  run_id: number;
+  dataset_id: number;
+  level: ExecutionLogLevel;
+  stage: string;
+  message: string;
+  timestamp: string;
+}
+
+export interface ExecutionLogsResponse {
+  items: ExecutionLog[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface ExecutionLogQueryParams {
+  page?: number;
+  page_size?: number;
+  level?: ExecutionLogLevel;
+  search?: string;
+}
+
+export const getProcessingRunLogs = async (
+  runId: number,
+  params: ExecutionLogQueryParams = {},
+): Promise<ExecutionLogsResponse> => {
+  const response = await api.get<ExecutionLogsResponse>(
+    `/api/v1/processing-runs/${runId}/logs`,
+    {
+      params: {
+        page: params.page ?? 1,
+        page_size: params.page_size ?? 20,
+        ...(params.level ? { level: params.level } : {}),
+        ...(params.search ? { search: params.search } : {}),
+      },
+    },
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 6. ERROR MONITORING SUMMARY API
+// =====================================================
+
+export interface ProcessingRunsSummary {
+  total: number;
+  completed: number;
+  failed: number;
+  pending: number;
+  processing: number;
+}
+
+export interface ValidationSummary {
+  total_failures: number;
+}
+
+export interface ErrorSeverityDistribution {
+  LOW: number;
+  MEDIUM: number;
+  HIGH: number;
+  CRITICAL: number;
+}
+
+export interface RecurringErrorDataset {
+  dataset_id: number;
+  dataset_name: string;
+  error_count: number;
+}
+
+export interface FrequentFailingRule {
+  rule_id: number;
+  rule_name: string;
+  failure_count: number;
+}
+
+export interface ErrorMonitoringSummary {
+  processing_runs: ProcessingRunsSummary;
+
+  validation: ValidationSummary;
+
+  error_monitoring: {
+    severity_distribution: ErrorSeverityDistribution;
+    unresolved_errors: number;
+    recurring_error_datasets: RecurringErrorDataset[];
+  };
+
+  frequent_failing_rules: FrequentFailingRule[];
+}
+
+export const getProcessingRunsSummary =
+  async (): Promise<ErrorMonitoringSummary> => {
+    const response = await api.get<ErrorMonitoringSummary>(
+      "/api/v1/processing-runs/summary",
+    );
+
+    return response.data;
+  };
+
+// =====================================================
+// 7. QUALITY SUMMARY API
 // =====================================================
 
 export interface QualitySummary {
@@ -312,7 +424,7 @@ export const getQualitySummary = async (
 };
 
 // =====================================================
-// 6. CSV UPLOAD API
+// 8. CSV UPLOAD API
 // =====================================================
 
 export interface CSVUploadResponse {
@@ -342,7 +454,7 @@ export const uploadDatasetCSV = async (
 };
 
 // =====================================================
-// 7. EXECUTE VALIDATION API
+// 9. EXECUTE VALIDATION API
 // =====================================================
 
 export interface ValidationResultItem {
