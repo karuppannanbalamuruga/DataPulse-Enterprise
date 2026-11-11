@@ -1,5 +1,5 @@
 
-from datetime import datetime
+from datetime import datetime, date
 from math import ceil
 from typing import Literal
 
@@ -154,9 +154,7 @@ class ExecutionLogListResponse(BaseModel):
 def get_processing_runs_summary(
     db: Session = Depends(get_db),
 ):
-    # ----------------------------------------------
-    # 1. Processing Run Statistics
-    # ----------------------------------------------
+    # Processing Run Statistics
 
     total_runs = (
         db.query(func.count(ProcessingRun.id))
@@ -192,9 +190,7 @@ def get_processing_runs_summary(
         or 0
     )
 
-    # ----------------------------------------------
-    # 2. Validation Failure Statistics
-    # ----------------------------------------------
+    # Validation Failure Statistics
 
     total_validation_failures = (
         db.query(func.count(ValidationIssue.id))
@@ -202,9 +198,7 @@ def get_processing_runs_summary(
         or 0
     )
 
-    # ----------------------------------------------
-    # 3. Error Severity Distribution
-    # ----------------------------------------------
+    # Error Severity Distribution
 
     severity_results = (
         db.query(
@@ -224,12 +218,9 @@ def get_processing_runs_summary(
 
     for severity, count in severity_results:
         severity_key = severity.upper()
-
         severity_distribution[severity_key] = count
 
-    # ----------------------------------------------
-    # 4. Frequent Failing Rules
-    # ----------------------------------------------
+    # Frequent Failing Rules
 
     rule_results = (
         db.query(
@@ -264,9 +255,7 @@ def get_processing_runs_summary(
         for rule_id, rule_name, failure_count in rule_results
     ]
 
-    # ----------------------------------------------
-    # 5. Recurring Error Datasets
-    # ----------------------------------------------
+    # Recurring Error Datasets
 
     dataset_results = (
         db.query(
@@ -304,9 +293,7 @@ def get_processing_runs_summary(
         for dataset_id, dataset_name, error_count in dataset_results
     ]
 
-    # ----------------------------------------------
-    # 6. Unresolved Errors
-    # ----------------------------------------------
+    # Unresolved Errors
 
     unresolved_errors = (
         db.query(func.count(ErrorRecord.id))
@@ -317,10 +304,6 @@ def get_processing_runs_summary(
         or 0
     )
 
-    # ----------------------------------------------
-    # 7. Final Response
-    # ----------------------------------------------
-
     return {
         "processing_runs": {
             "total": total_runs,
@@ -329,17 +312,14 @@ def get_processing_runs_summary(
             "pending": pending_runs,
             "processing": processing_runs,
         },
-
         "validation": {
             "total_failures": total_validation_failures,
         },
-
         "error_monitoring": {
             "severity_distribution": severity_distribution,
             "unresolved_errors": unresolved_errors,
             "recurring_error_datasets": recurring_error_datasets,
         },
-
         "frequent_failing_rules": frequent_failing_rules,
     }
 
@@ -367,6 +347,11 @@ def get_processing_runs(
         max_length=200,
     ),
 
+    run_id: int | None = Query(
+        default=None,
+        ge=1,
+    ),
+
     dataset_id: int | None = Query(
         default=None,
         ge=1,
@@ -376,33 +361,105 @@ def get_processing_runs(
         default=None,
     ),
 
+    start_date: date | None = Query(
+        default=None,
+    ),
+
+    end_date: date | None = Query(
+        default=None,
+    ),
+
+    sort_by: Literal[
+        "execution_date",
+        "duration",
+        "quality_score",
+    ] = Query(
+        default="execution_date",
+    ),
+
+    sort_order: Literal["asc", "desc"] = Query(
+        default="desc",
+    ),
+
     db: Session = Depends(get_db),
 ):
+    # Validate date range
+
+    if (
+        start_date is not None
+        and end_date is not None
+        and start_date > end_date
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Start date cannot be after end date",
+        )
+
     query = db.query(ProcessingRun)
+
+    # Filter by Run ID
+
+    if run_id is not None:
+        query = query.filter(
+            ProcessingRun.id == run_id
+        )
+
+    # Filter by Dataset ID
 
     if dataset_id is not None:
         query = query.filter(
             ProcessingRun.dataset_id == dataset_id
         )
 
+    # Filter by Status
+
     if status is not None:
         query = query.filter(
             ProcessingRun.status == status
         )
 
+    # Search by Run ID, Dataset Name,
+    # Status or Error Message
+
     if search and search.strip():
         term = f"%{search.strip()}%"
+
+        search_conditions = [
+            Dataset.name.ilike(term),
+            ProcessingRun.status.ilike(term),
+            ProcessingRun.error_message.ilike(term),
+        ]
+
+        # If search contains a numeric Run ID,
+        # include an exact ID match.
+
+        if search.strip().isdigit():
+            search_conditions.append(
+                ProcessingRun.id == int(search.strip())
+            )
 
         query = query.join(
             Dataset,
             ProcessingRun.dataset_id == Dataset.id,
         ).filter(
-            or_(
-                Dataset.name.ilike(term),
-                ProcessingRun.status.ilike(term),
-                ProcessingRun.error_message.ilike(term),
-            )
+            or_(*search_conditions)
         )
+
+    # Filter by Start Date
+
+    if start_date is not None:
+        query = query.filter(
+            func.date(ProcessingRun.started_at) >= start_date
+        )
+
+    # Filter by End Date
+
+    if end_date is not None:
+        query = query.filter(
+            func.date(ProcessingRun.started_at) <= end_date
+        )
+
+    # Total Records
 
     total = query.count()
 
@@ -412,10 +469,31 @@ def get_processing_runs(
         else 0
     )
 
+    # Dynamic sorting
+    # PostgreSQL supports ordering directly by this interval expression.
+    # Runs without completed_at have NULL duration and are placed last.
+
+    if sort_by == "duration":
+        sort_column = (
+            ProcessingRun.completed_at
+            - ProcessingRun.started_at
+        )
+    elif sort_by == "quality_score":
+        sort_column = ProcessingRun.quality_score
+    else:
+        sort_column = ProcessingRun.started_at
+
+    if sort_order == "asc":
+        ordering = sort_column.asc().nulls_last()
+    else:
+        ordering = sort_column.desc().nulls_last()
+
+    # Fetch Paginated Results
+
     runs = (
         query
         .order_by(
-            ProcessingRun.started_at.desc(),
+            ordering,
             ProcessingRun.id.desc(),
         )
         .offset((page - 1) * page_size)

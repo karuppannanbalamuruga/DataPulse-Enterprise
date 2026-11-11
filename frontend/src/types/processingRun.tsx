@@ -33,13 +33,20 @@ export interface ProcessingRunsResponse {
   total_pages: number;
 }
 
+
 export interface ProcessingRunQueryParams {
   page?: number;
   page_size?: number;
   search?: string;
+  run_id?: number;
   dataset_id?: number;
   status?: ProcessingRunStatus;
+  start_date?: string;
+  end_date?: string;
+  sort_by?: "execution_date" | "duration" | "quality_score";
+  sort_order?: "asc" | "desc";
 }
+
 
 export interface UpdateProcessingRunPayload {
   status?: ProcessingRunStatus;

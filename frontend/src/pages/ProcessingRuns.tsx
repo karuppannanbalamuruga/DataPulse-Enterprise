@@ -20,6 +20,7 @@ import {
 import type {
   ProcessingRun,
   ProcessingRunStatus,
+  ProcessingRunQueryParams,
 } from "../types/processingRun";
 import type { Dataset } from "../types/dataset";
 import ExecutionLogsViewer from "../components/common/ExecutionLogsViewer";
@@ -46,8 +47,21 @@ export default function ProcessingRuns() {
   const [formError, setFormError] = useState("");
   const [editFormError, setEditFormError] = useState("");
 
-  // Status filter
+  // Search, filters and sorting
+  const [searchInput, setSearchInput] = useState("");
+  const [searchFilter, setSearchFilter] = useState("");
+  const [datasetFilter, setDatasetFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [startDateFilter, setStartDateFilter] = useState("");
+  const [endDateFilter, setEndDateFilter] = useState("");
+
+  const [sortBy, setSortBy] =
+    useState<NonNullable<ProcessingRunQueryParams["sort_by"]>>(
+      "execution_date",
+    );
+
+  const [sortOrder, setSortOrder] =
+    useState<NonNullable<ProcessingRunQueryParams["sort_order"]>>("desc");
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -115,7 +129,7 @@ export default function ProcessingRuns() {
       : "Request failed. Please check the backend and try again.";
   }
 
-  // Fetch processing runs using server-side pagination and filters.
+  // Fetch processing runs with server-side search, filters and sorting.
   const loadProcessingRuns = useCallback(
     async (pageNumber = page) => {
       try {
@@ -125,20 +139,26 @@ export default function ProcessingRuns() {
         const response = await getProcessingRuns({
           page: pageNumber,
           page_size: pageSize,
+          search: searchFilter.trim() || undefined,
+          dataset_id: datasetFilter ? Number(datasetFilter) : undefined,
           status: statusFilter
             ? (statusFilter as ProcessingRunStatus)
             : undefined,
+          start_date: startDateFilter || undefined,
+          end_date: endDateFilter || undefined,
+          sort_by: sortBy,
+          sort_order: sortOrder,
         });
 
         setRuns(response.items);
         setTotal(response.total);
         setTotalPages(response.total_pages);
 
-        // Avoid setting page outside the valid range after filtering/deleting.
         const validPage = Math.max(
           1,
           response.total_pages ? Math.min(pageNumber, response.total_pages) : 1,
         );
+
         if (response.page !== validPage) {
           setPage(validPage);
         }
@@ -149,7 +169,17 @@ export default function ProcessingRuns() {
         setLoading(false);
       }
     },
-    [page, pageSize, statusFilter],
+    [
+      page,
+      pageSize,
+      searchFilter,
+      datasetFilter,
+      statusFilter,
+      startDateFilter,
+      endDateFilter,
+      sortBy,
+      sortOrder,
+    ],
   );
 
   const loadDatasets = useCallback(async () => {
@@ -174,6 +204,32 @@ export default function ProcessingRuns() {
   useEffect(() => {
     void loadProcessingRuns(page);
   }, [page, loadProcessingRuns]);
+
+  useEffect(() => {
+    void loadDatasets();
+  }, [loadDatasets]);
+
+  // Automatic search while typing (350ms debounce).
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setPage(1);
+      setSearchFilter(searchInput.trim());
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [searchInput]);
+
+  function clearFilters() {
+    setSearchInput("");
+    setSearchFilter("");
+    setDatasetFilter("");
+    setStatusFilter("");
+    setStartDateFilter("");
+    setEndDateFilter("");
+    setSortBy("execution_date");
+    setSortOrder("desc");
+    setPage(1);
+  }
 
   async function handleViewRun(run: ProcessingRun) {
     setViewRun(run);
@@ -214,7 +270,6 @@ export default function ProcessingRuns() {
       setSelectedDatasetId("");
       showToast("Processing run created successfully.", "success");
 
-      // A new run may not be on the current page; return to page one.
       if (page !== 1) {
         setPage(1);
       } else {
@@ -301,14 +356,19 @@ export default function ProcessingRuns() {
       await deleteProcessingRun(deletingRun.id);
 
       setDeletingRun(null);
-      showToast(`Processing run #${deletingRun.id} deleted successfully.`, "success");
+      showToast(
+        `Processing run #${deletingRun.id} deleted successfully.`,
+        "success",
+      );
 
-      // Reload current page; if it became empty, load the previous page.
       const nextTotal = Math.max(0, total - 1);
-      const nextTotalPages = nextTotal === 0 ? 0 : Math.ceil(nextTotal / pageSize);
-      const targetPage = page > nextTotalPages && nextTotalPages > 0
-        ? nextTotalPages
-        : Math.max(1, page);
+      const nextTotalPages =
+        nextTotal === 0 ? 0 : Math.ceil(nextTotal / pageSize);
+
+      const targetPage =
+        page > nextTotalPages && nextTotalPages > 0
+          ? nextTotalPages
+          : Math.max(1, page);
 
       if (targetPage !== page) {
         setPage(targetPage);
@@ -345,16 +405,23 @@ export default function ProcessingRuns() {
 
   function formatDate(value?: string | null) {
     if (!value) return "—";
+
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   }
 
-  function formatDuration(startedAt?: string | null, completedAt?: string | null) {
+  function formatDuration(
+    startedAt?: string | null,
+    completedAt?: string | null,
+  ) {
     if (!startedAt || !completedAt) return "—";
 
     const start = new Date(startedAt).getTime();
     const end = new Date(completedAt).getTime();
-    if (Number.isNaN(start) || Number.isNaN(end) || end < start) return "—";
+
+    if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
+      return "—";
+    }
 
     const totalSeconds = Math.floor((end - start) / 1000);
     const minutes = Math.floor(totalSeconds / 60);
@@ -387,9 +454,57 @@ export default function ProcessingRuns() {
         onClose={() => setToastMessage("")}
       />
 
-      {/* Search and status filter */}
+      {/* Search, filters and sorting */}
       <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {/* Automatic Search */}
+          <div className="sm:col-span-2">
+            <label
+              htmlFor="processing-run-search"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
+              Search Run ID or Dataset Name
+            </label>
+
+            <input
+              id="processing-run-search"
+              type="search"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Enter run ID, dataset name, status..."
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+
+          {/* Dataset Filter */}
+          <div>
+            <label
+              htmlFor="processing-run-dataset-filter"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
+              Filter by Dataset
+            </label>
+
+            <select
+              id="processing-run-dataset-filter"
+              value={datasetFilter}
+              onChange={(event) => {
+                setDatasetFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="">All Datasets</option>
+
+              {datasets.map((dataset) => (
+                <option key={dataset.id} value={dataset.id}>
+                  {dataset.name} (ID: {dataset.id})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status Filter */}
           <div>
             <label
               htmlFor="processing-run-status-filter"
@@ -397,6 +512,7 @@ export default function ProcessingRuns() {
             >
               Filter by Status
             </label>
+
             <select
               id="processing-run-status-filter"
               value={statusFilter}
@@ -407,6 +523,7 @@ export default function ProcessingRuns() {
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
               <option value="">All Statuses</option>
+
               {RUN_STATUSES.map((status) => (
                 <option key={status} value={status}>
                   {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -414,9 +531,115 @@ export default function ProcessingRuns() {
               ))}
             </select>
           </div>
+
+          {/* Start Date */}
+          <div>
+            <label
+              htmlFor="processing-run-start-date"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
+              Start Date
+            </label>
+
+            <input
+              id="processing-run-start-date"
+              type="date"
+              value={startDateFilter}
+              max={endDateFilter || undefined}
+              onChange={(event) => {
+                setStartDateFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+
+          {/* End Date */}
+          <div>
+            <label
+              htmlFor="processing-run-end-date"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
+              End Date
+            </label>
+
+            <input
+              id="processing-run-end-date"
+              type="date"
+              value={endDateFilter}
+              min={startDateFilter || undefined}
+              onChange={(event) => {
+                setEndDateFilter(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+
+          {/* Sort By */}
+          <div>
+            <label
+              htmlFor="processing-run-sort-by"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
+              Sort By
+            </label>
+
+            <select
+              id="processing-run-sort-by"
+              value={sortBy}
+              onChange={(event) => {
+                setSortBy(
+                  event.target.value as NonNullable<
+                    ProcessingRunQueryParams["sort_by"]
+                  >,
+                );
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="execution_date">Execution Date</option>
+              <option value="duration">Duration</option>
+              <option value="quality_score">Quality Score</option>
+            </select>
+          </div>
+
+          {/* Sort Order */}
+          <div>
+            <label
+              htmlFor="processing-run-sort-order"
+              className="mb-2 block text-sm font-medium text-slate-700"
+            >
+              Sort Order
+            </label>
+
+            <select
+              id="processing-run-sort-order"
+              value={sortOrder}
+              onChange={(event) => {
+                setSortOrder(
+                  event.target.value as NonNullable<
+                    ProcessingRunQueryParams["sort_order"]
+                  >,
+                );
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="desc">Descending</option>
+              <option value="asc">Ascending</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <Button variant="secondary" onClick={clearFilters}>
+            Clear Filters
+          </Button>
         </div>
       </div>
 
+      {/* Processing Runs Table */}
       {loading ? (
         <Loader message="Loading processing runs..." />
       ) : error ? (
@@ -424,6 +647,7 @@ export default function ProcessingRuns() {
           <p role="alert" className="text-sm text-red-600">
             {error}
           </p>
+
           <Button
             className="mt-4"
             onClick={() => void loadProcessingRuns(page)}
@@ -436,7 +660,11 @@ export default function ProcessingRuns() {
           <EmptyState
             title="No processing runs found"
             description={
-              statusFilter
+              searchFilter ||
+              datasetFilter ||
+              statusFilter ||
+              startDateFilter ||
+              endDateFilter
                 ? "Try changing your search or clearing the filters."
                 : "Create a processing run to get started."
             }
@@ -457,6 +685,7 @@ export default function ProcessingRuns() {
                   <th className="px-5 py-4 text-center font-medium">Actions</th>
                 </tr>
               </thead>
+
               <tbody>
                 {runs.map((run) => (
                   <tr
@@ -466,17 +695,24 @@ export default function ProcessingRuns() {
                     <td className="px-5 py-4 font-medium text-slate-900">
                       {run.id}
                     </td>
+
                     <td className="px-5 py-4">{run.dataset_id}</td>
+
                     <td className="px-5 py-4">
                       <Badge status={getStatus(run.status)}>{run.status}</Badge>
                     </td>
+
                     <td className="px-5 py-4">{run.records_processed ?? 0}</td>
+
                     <td className="px-5 py-4">{formatDate(run.started_at)}</td>
+
                     <td className="px-5 py-4">
                       {formatDate(run.completed_at)}
                     </td>
+
                     <td className="px-5 py-4 text-center">
                       <div className="inline-flex items-center justify-center gap-2">
+                        {/* View */}
                         <button
                           type="button"
                           onClick={() => void handleViewRun(run)}
@@ -499,6 +735,8 @@ export default function ProcessingRuns() {
                             <circle cx="12" cy="12" r="3" />
                           </svg>
                         </button>
+
+                        {/* Edit */}
                         <button
                           type="button"
                           onClick={() => handleEditRun(run)}
@@ -521,6 +759,8 @@ export default function ProcessingRuns() {
                             <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
                           </svg>
                         </button>
+
+                        {/* Delete */}
                         <button
                           type="button"
                           onClick={() => openDeleteModal(run)}
@@ -554,10 +794,12 @@ export default function ProcessingRuns() {
             </table>
           </div>
 
+          {/* Pagination */}
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-slate-500">
               Showing {firstRecord}–{lastRecord} of {total} records
             </p>
+
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-3">
                 <label
@@ -581,6 +823,7 @@ export default function ProcessingRuns() {
                   <option value={50}>50</option>
                 </select>
               </div>
+
               <Button
                 variant="secondary"
                 disabled={page <= 1 || loading}
@@ -588,9 +831,11 @@ export default function ProcessingRuns() {
               >
                 Previous
               </Button>
+
               <span className="px-3 text-sm text-slate-700">
                 Page {page} of {Math.max(totalPages, 1)}
               </span>
+
               <Button
                 variant="secondary"
                 disabled={page >= totalPages || loading || totalPages === 0}
@@ -621,6 +866,7 @@ export default function ProcessingRuns() {
             >
               Select Dataset
             </label>
+
             <select
               id="dataset"
               value={selectedDatasetId}
@@ -634,6 +880,7 @@ export default function ProcessingRuns() {
               <option value="">
                 {datasetsLoading ? "Loading datasets..." : "Choose a dataset"}
               </option>
+
               {datasets.map((dataset) => (
                 <option key={dataset.id} value={dataset.id}>
                   {dataset.name} (ID: {dataset.id})
@@ -647,6 +894,7 @@ export default function ProcessingRuns() {
               {formError}
             </p>
           )}
+
           {!datasetsLoading && datasets.length === 0 && !formError && (
             <p className="text-sm text-amber-700">
               No datasets are available. Create a dataset first.
@@ -662,6 +910,7 @@ export default function ProcessingRuns() {
             >
               Cancel
             </Button>
+
             <Button
               onClick={() => void handleCreateRun()}
               loading={creating}
@@ -690,41 +939,54 @@ export default function ProcessingRuns() {
             <Detail label="Run ID" value={viewRun.id} />
             <Detail label="Dataset ID" value={viewRun.dataset_id} />
             <Detail label="Status" value={viewRun.status} />
+
             <Detail
               label="Records Processed"
               value={viewRun.records_processed ?? 0}
             />
+
             <Detail
               label="Total Rules Executed"
               value={viewRun.total_rules_executed ?? "—"}
             />
+
             <Detail
               label="Passed Checks"
               value={viewRun.passed_checks ?? "—"}
             />
+
             <Detail
               label="Failed Checks"
               value={viewRun.failed_checks ?? "—"}
             />
+
             <Detail
               label="Quality Score"
-              value={viewRun.quality_score == null ? "—" : `${Number(viewRun.quality_score).toFixed(2)}%`}
+              value={
+                viewRun.quality_score == null
+                  ? "—"
+                  : `${Number(viewRun.quality_score).toFixed(2)}%`
+              }
             />
+
             <Detail label="Started At" value={formatDate(viewRun.started_at)} />
+
             <Detail
               label="Completed At"
               value={formatDate(viewRun.completed_at)}
             />
+
             <Detail
               label="Execution Duration"
               value={formatDuration(viewRun.started_at, viewRun.completed_at)}
             />
+
             <Detail
               label="Error Message"
               value={viewRun.error_message || "—"}
             />
 
-            {/* Execution logs for this processing run */}
+            {/* Execution logs */}
             <div className="border-t border-slate-200 pt-4">
               <ExecutionLogsViewer runId={viewRun.id} />
             </div>
@@ -748,6 +1010,7 @@ export default function ProcessingRuns() {
       >
         <form onSubmit={handleUpdateRun} className="space-y-5">
           <Detail label="Run ID" value={editingRun?.id ?? "—"} />
+
           <Detail label="Dataset ID" value={editingRun?.dataset_id ?? "—"} />
 
           <div>
@@ -757,6 +1020,7 @@ export default function ProcessingRuns() {
             >
               Status
             </label>
+
             <select
               id="edit-run-status"
               value={editStatus}
@@ -780,6 +1044,7 @@ export default function ProcessingRuns() {
             >
               Records Processed
             </label>
+
             <input
               id="edit-records-processed"
               type="number"
@@ -799,6 +1064,7 @@ export default function ProcessingRuns() {
             >
               Error Message
             </label>
+
             <textarea
               id="edit-run-error"
               rows={3}
@@ -824,6 +1090,7 @@ export default function ProcessingRuns() {
             >
               Cancel
             </Button>
+
             <Button type="submit" loading={updating} disabled={updating}>
               {updating ? "Updating..." : "Save Changes"}
             </Button>
@@ -846,6 +1113,7 @@ export default function ProcessingRuns() {
                 Are you sure you want to delete processing run{" "}
                 <span className="font-semibold">#{deletingRun.id}</span>?
               </p>
+
               <p className="mt-2 text-sm text-red-700">
                 This action cannot be undone.
               </p>
@@ -866,6 +1134,7 @@ export default function ProcessingRuns() {
               >
                 Cancel
               </Button>
+
               <Button
                 type="button"
                 onClick={() => void handleDeleteRun()}
@@ -886,6 +1155,7 @@ function Detail({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="grid grid-cols-1 gap-1 border-b border-slate-100 pb-3 sm:grid-cols-3">
       <p className="text-sm text-slate-500">{label}</p>
+
       <p className="break-words text-sm font-medium text-slate-800 sm:col-span-2">
         {value}
       </p>
