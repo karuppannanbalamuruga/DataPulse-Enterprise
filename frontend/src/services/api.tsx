@@ -33,6 +33,18 @@ import type {
   ProcessingRunListResponse,
 } from "../types/processingRun";
 
+import type {
+  AnalyticsOverview,
+  QualityTrend,
+  ProcessingTrend,
+  DatasetComparisonResponse,
+  DatasetComparisonFilters,
+  AnalyticsFilters,
+  ValidationPerformance,
+  ValidationPerformanceFilters,
+  AnalyticsExportFilters,
+} from "../types/analytics";
+
 // =====================================================
 // 1. DATASET APIs
 // =====================================================
@@ -496,3 +508,119 @@ export const executeDatasetValidation = async (
 
   return response.data;
 };
+
+
+// =====================================================
+// 10. ANALYTICS OVERVIEW API
+// =====================================================
+
+export const getAnalyticsOverview = async (): Promise<AnalyticsOverview> => {
+  const response = await api.get<AnalyticsOverview>(
+    "/api/v1/analytics/overview"
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 11. QUALITY TRENDS API
+// =====================================================
+
+export const getQualityTrends = async (
+  filters: AnalyticsFilters = {}
+): Promise<QualityTrend[]> => {
+  const response = await api.get<QualityTrend[]>(
+    "/api/v1/analytics/quality-trends",
+    { params: filters }
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 12. DATASET COMPARISON API
+// =====================================================
+
+export const getDatasetComparison = async (
+  filters: DatasetComparisonFilters
+): Promise<DatasetComparisonResponse> => {
+  const params = new URLSearchParams();
+
+  filters.dataset_ids.forEach((id) => {
+    params.append("dataset_ids", String(id));
+  });
+
+  if (filters.start_date) {
+    params.append("start_date", filters.start_date);
+  }
+
+  if (filters.end_date) {
+    params.append("end_date", filters.end_date);
+  }
+
+  const response = await api.get<DatasetComparisonResponse>(
+    `/api/v1/analytics/dataset-comparison?${params.toString()}`
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 13. VALIDATION PERFORMANCE API
+// =====================================================
+
+export const getValidationPerformance = async (
+  filters: ValidationPerformanceFilters = {}
+): Promise<ValidationPerformance[]> => {
+  const response = await api.get<ValidationPerformance[]>(
+    "/api/v1/analytics/validation-performance",
+    { params: filters }
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 14. PROCESSING TRENDS API
+// =====================================================
+
+export const getProcessingTrends = async (
+  filters: AnalyticsFilters = {}
+): Promise<ProcessingTrend[]> => {
+  const response = await api.get<ProcessingTrend[]>(
+    "/api/v1/analytics/processing-trends",
+    { params: filters }
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 15. ANALYTICS CSV EXPORT API
+// =====================================================
+
+export const exportAnalyticsCSV = async (
+  filters: AnalyticsExportFilters = {}
+): Promise<void> => {
+  const response = await api.get("/api/v1/analytics/export", {
+    params: filters,
+    responseType: "blob",
+  });
+
+  const blob = new Blob([response.data], {
+    type: "text/csv;charset=utf-8;",
+  });
+
+  const downloadUrl = window.URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = "datapulse_analytics.csv";
+
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  window.URL.revokeObjectURL(downloadUrl);
+};
+

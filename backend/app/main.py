@@ -10,6 +10,7 @@ from app.api.routes.validation_rules import router as validation_rules_router
 from app.api.routes.processing_runs import router as processing_runs_router
 from app.api.routes.validation_results import router as validation_results_router
 from app.api.routes.quality_summary import router as quality_summary_router
+from app.api.routes.analytics import router as analytics_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -32,6 +33,7 @@ app.include_router(validation_rules_router)
 app.include_router(processing_runs_router)
 app.include_router(validation_results_router)
 app.include_router(quality_summary_router)
+app.include_router(analytics_router)
 
 
 app.add_middleware(

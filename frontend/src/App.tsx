@@ -7,6 +7,7 @@ import ValidationRules from "./pages/ValidationRules";
 import ProcessingRuns from "./pages/ProcessingRuns";
 import Settings from "./pages/Settings";
 import Organizations from "./pages/Organizations";
+import Analytics from "./pages/Analytics";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/datasets" element={<Datasets />} />
         <Route path="/validation-rules" element={<ValidationRules />} />
         <Route path="/processing-runs" element={<ProcessingRuns />} />
+        <Route path="/analytics" element={<Analytics />} />
         <Route path="/organizations" element={<Organizations />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />

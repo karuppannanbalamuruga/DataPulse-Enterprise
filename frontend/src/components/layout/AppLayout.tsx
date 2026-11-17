@@ -3,10 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 
-const pageDetails: Record<
-  string,
-  { title: string; description: string }
-> = {
+const pageDetails: Record<string, { title: string; description: string }> = {
   "/": {
     title: "Dashboard",
     description: "Data quality and analytics overview",
@@ -22,6 +19,10 @@ const pageDetails: Record<
   "/processing-runs": {
     title: "Processing Runs",
     description: "Track dataset processing activity",
+  },
+  "/analytics": {
+    title: "Data Quality Analytics",
+    description: "Analyze quality trends, validation performance and processing history",
   },
   "/organizations": {
     title: "Organizations",
@@ -43,14 +44,10 @@ export default function AppLayout() {
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-violet-50/30 text-slate-800">
-
       <Sidebar />
 
       <main className="min-w-0 flex-1">
-        <Header
-          title={page.title}
-          description={page.description}
-        />
+        <Header title={page.title} description={page.description} />
 
         <div className="w-full">
           <Outlet />
