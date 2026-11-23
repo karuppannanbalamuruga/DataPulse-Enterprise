@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
 
@@ -12,6 +11,8 @@ import {
   X,
   Menu,
   Activity,
+  Bell,
+  AlertTriangle,
 } from "lucide-react";
 
 const navigationItems = [
@@ -45,6 +46,16 @@ const navigationItems = [
     icon: Building2,
     href: "/organizations",
   },
+  {
+    label: "Alerts",
+    icon: AlertTriangle,
+    href: "/alerts",
+  },
+  {
+    label: "Notifications",
+    icon: Bell,
+    href: "/notifications",
+  },
 ];
 
 function SidebarContent({
@@ -56,12 +67,9 @@ function SidebarContent({
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[26px] border border-white/80 bg-white/55 text-slate-700 shadow-[0_12px_40px_rgba(71,85,130,0.12)] backdrop-blur-2xl">
-
       {/* BRAND */}
       <div className="flex shrink-0 items-center justify-between border-b border-white/70 px-5 py-6">
-
         <div className="flex items-center gap-3">
-
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-blue-400 via-violet-400 to-purple-500 text-2xl font-bold text-white shadow-lg shadow-violet-300/40">
             D
           </div>
@@ -75,7 +83,6 @@ function SidebarContent({
               ENTERPRISE PLATFORM
             </p>
           </div>
-
         </div>
 
         {onClose && (
@@ -88,7 +95,6 @@ function SidebarContent({
             <X size={18} />
           </button>
         )}
-
       </div>
 
       {/* NAVIGATION */}
@@ -96,7 +102,6 @@ function SidebarContent({
         aria-label="Main navigation"
         className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-
         <p className="mb-4 px-3 text-[10px] font-extrabold uppercase tracking-[2px] text-slate-400">
           Workspace
         </p>
@@ -120,7 +125,6 @@ function SidebarContent({
             >
               {({ isActive }) => (
                 <>
-
                   {/* MENU ICON */}
                   <span
                     className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl transition ${
@@ -133,28 +137,22 @@ function SidebarContent({
                   </span>
 
                   {/* MENU LABEL */}
-                  <span className="min-w-0 flex-1">
-                    {item.label}
-                  </span>
+                  <span className="min-w-0 flex-1">{item.label}</span>
 
                   {/* ACTIVE INDICATOR */}
                   {isActive && (
                     <span className="h-2 w-2 rounded-full bg-white shadow-[0_0_8px_white]" />
                   )}
-
                 </>
               )}
             </NavLink>
           );
         })}
-
       </nav>
 
       {/* SYSTEM HEALTH */}
       <div className="mx-4 mb-3 shrink-0 rounded-2xl border border-white/80 bg-white/65 p-3.5 shadow-sm backdrop-blur-xl">
-
         <div className="flex items-center gap-3">
-
           <span className="relative flex h-3 w-3 shrink-0">
             <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
 
@@ -171,10 +169,8 @@ function SidebarContent({
               All Services Operational
             </p>
           </div>
-
         </div>
       </div>
-
     </div>
   );
 }
@@ -184,7 +180,6 @@ export default function Sidebar() {
 
   return (
     <>
-
       {/* MOBILE MENU */}
       <button
         type="button"
@@ -203,7 +198,6 @@ export default function Sidebar() {
       {/* MOBILE DRAWER */}
       {mobileOpen && (
         <div className="fixed inset-0 z-[60] md:hidden">
-
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
@@ -212,17 +206,13 @@ export default function Sidebar() {
           />
 
           <aside className="relative h-full w-[285px] max-w-[85vw] bg-gradient-to-br from-[#dcecff] via-[#e9e7ff] to-[#fce4f0] p-3 shadow-2xl">
-
             <SidebarContent
               onNavigate={() => setMobileOpen(false)}
               onClose={() => setMobileOpen(false)}
             />
-
           </aside>
-
         </div>
       )}
-
     </>
   );
 }

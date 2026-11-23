@@ -35,3 +35,9 @@ class Organization(Base):
         "Dataset",
         back_populates="organization",
     )
+
+    alert_rules = relationship(
+        "AlertRule",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )

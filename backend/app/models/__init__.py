@@ -9,6 +9,11 @@ from app.models.validation_issue import ValidationIssue
 from app.models.execution_log import ExecutionLog
 from app.models.error_record import ErrorRecord
 
+# Task 7 Models
+from app.models.alert_rule import AlertRule
+from app.models.alert import Alert
+from app.models.notification import Notification
+
 __all__ = [
     "Organization",
     "User",
@@ -19,4 +24,7 @@ __all__ = [
     "ValidationIssue",
     "ExecutionLog",
     "ErrorRecord",
+    "AlertRule",
+    "Alert",
+    "Notification",
 ]

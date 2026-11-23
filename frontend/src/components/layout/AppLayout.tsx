@@ -1,4 +1,3 @@
-
 import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
@@ -22,7 +21,8 @@ const pageDetails: Record<string, { title: string; description: string }> = {
   },
   "/analytics": {
     title: "Data Quality Analytics",
-    description: "Analyze quality trends, validation performance and processing history",
+    description:
+      "Analyze quality trends, validation performance and processing history",
   },
   "/organizations": {
     title: "Organizations",
@@ -31,6 +31,14 @@ const pageDetails: Record<string, { title: string; description: string }> = {
   "/settings": {
     title: "Settings",
     description: "Manage your workspace settings",
+  },
+  "/alerts": {
+    title: "Alerts",
+    description: "Monitor, acknowledge and resolve data quality alerts",
+  },
+  "/notifications": {
+    title: "Notifications",
+    description: "View and manage your notifications",
   },
 };
 

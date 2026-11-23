@@ -20,6 +20,10 @@ from app.services.monitoring_service import (
     create_execution_log,
     create_error_record,
 )
+from app.services.alert_service import (
+    evaluate_alert_rules_for_run,
+    evaluate_processing_failure_event,
+)
 
 
 def classify_error(exc, stage):
@@ -53,6 +57,7 @@ def execute_csv_validation(
     rule_ids: list[int] | None = None,
 ):
     run = None
+    processing_run_id = None
     stage = "RUN_START"
 
     try:
@@ -78,6 +83,8 @@ def execute_csv_validation(
 
         db.add(run)
         db.flush()
+
+        processing_run_id = run.id
 
         create_execution_log(
             db,
@@ -201,7 +208,10 @@ def execute_csv_validation(
                 dataset_id,
                 "WARNING",
                 "VALIDATION_RESULTS",
-                f"Validation completed with {run.failed_checks} failed checks",
+                (
+                    f"Validation completed with "
+                    f"{run.failed_checks} failed checks"
+                ),
             )
 
         stage = "RUN_COMPLETION"
@@ -221,6 +231,18 @@ def execute_csv_validation(
         db.commit()
         db.refresh(run)
 
+        # Task 7 integration:
+        # Evaluate quality and validation alerts only
+        # after the processing run is successfully committed.
+        try:
+            evaluate_alert_rules_for_run(
+                db,
+                processing_run_id,
+            )
+        except Exception:
+            # Alert failures must not affect completed CSV processing.
+            db.rollback()
+
         return {
             "processing_run_id": run.id,
             "dataset_id": dataset_id,
@@ -237,11 +259,13 @@ def execute_csv_validation(
     except Exception as exc:
         db.rollback()
 
-        if run is not None and run.id is not None:
+        if processing_run_id is not None:
             try:
                 failed_run = (
                     db.query(ProcessingRun)
-                    .filter(ProcessingRun.id == run.id)
+                    .filter(
+                        ProcessingRun.id == processing_run_id
+                    )
                     .first()
                 )
 
@@ -274,7 +298,20 @@ def execute_csv_validation(
                         execution_log_id=error_log.id,
                     )
 
+                    # Persist failed status and error records first.
                     db.commit()
+
+                    # Task 7 integration:
+                    # Trigger processing failure alert after commit.
+                    try:
+                        evaluate_processing_failure_event(
+                            db,
+                            processing_run_id,
+                        )
+                    except Exception:
+                        # Alert delivery/evaluation must not hide
+                        # the original CSV processing exception.
+                        db.rollback()
 
             except Exception:
                 db.rollback()

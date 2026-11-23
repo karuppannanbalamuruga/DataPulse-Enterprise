@@ -45,6 +45,18 @@ import type {
   AnalyticsExportFilters,
 } from "../types/analytics";
 
+import type {
+  Alert,
+  AlertListResponse,
+  AlertQueryParams,
+  AlertActionResponse,
+  NotificationListResponse,
+  NotificationQueryParams,
+  UnreadNotificationCount,
+  MarkNotificationReadResponse,
+  MarkAllNotificationsReadResponse,
+} from "../types/alertNotification";
+
 // =====================================================
 // 1. DATASET APIs
 // =====================================================
@@ -624,3 +636,111 @@ export const exportAnalyticsCSV = async (
   window.URL.revokeObjectURL(downloadUrl);
 };
 
+
+// =====================================================
+// 17. ALERT APIs
+// =====================================================
+
+export const getAlerts = async (
+  params: AlertQueryParams = {},
+): Promise<AlertListResponse> => {
+  const response = await api.get<AlertListResponse>(
+    "/api/v1/alerts",
+    { params },
+  );
+
+  return response.data;
+};
+
+export const getAlert = async (
+  alertId: number,
+): Promise<Alert> => {
+  const response = await api.get<Alert>(
+    `/api/v1/alerts/${alertId}`,
+  );
+
+  return response.data;
+};
+
+export const acknowledgeAlert = async (
+  alertId: number,
+): Promise<AlertActionResponse> => {
+  const response = await api.patch<AlertActionResponse>(
+    `/api/v1/alerts/${alertId}/acknowledge`,
+  );
+
+  return response.data;
+};
+
+export const resolveAlert = async (
+  alertId: number,
+): Promise<AlertActionResponse> => {
+  const response = await api.patch<AlertActionResponse>(
+    `/api/v1/alerts/${alertId}/resolve`,
+  );
+
+  return response.data;
+};
+
+// =====================================================
+// 2. NOTIFICATION APIs
+// =====================================================
+
+export const getNotifications = async (
+  params: NotificationQueryParams,
+): Promise<NotificationListResponse> => {
+  const response = await api.get<NotificationListResponse>(
+    "/api/v1/notifications",
+    { params },
+  );
+
+  return response.data;
+};
+
+export const getUnreadNotificationCount = async (
+  recipientUserId: number,
+): Promise<UnreadNotificationCount> => {
+  const response = await api.get<UnreadNotificationCount>(
+    "/api/v1/notifications/unread-count",
+    {
+      params: {
+        recipient_user_id: recipientUserId,
+      },
+    },
+  );
+
+  return response.data;
+};
+
+export const markNotificationAsRead = async (
+  notificationId: number,
+  recipientUserId: number,
+): Promise<MarkNotificationReadResponse> => {
+  const response = await api.patch<MarkNotificationReadResponse>(
+    `/api/v1/notifications/${notificationId}/read`,
+    null,
+    {
+      params: {
+        recipient_user_id: recipientUserId,
+      },
+    },
+  );
+
+  return response.data;
+};
+
+export const markAllNotificationsAsRead = async (
+  recipientUserId: number,
+): Promise<MarkAllNotificationsReadResponse> => {
+  const response = await api.patch<MarkAllNotificationsReadResponse>(
+    "/api/v1/notifications/read-all",
+    null,
+    {
+      params: {
+        recipient_user_id: recipientUserId,
+      },
+    },
+  );
+
+  return response.data;
+};
